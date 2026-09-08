@@ -1,0 +1,15 @@
+# Окружение
+.venv/
+__pycache__/
+*.py[cod]
+
+# Данные, конфиг и секреты живут вне репозитория (~/Documents/Tracking/Invest),
+# но подстрахуемся на случай, если кто-то положит их сюда.
+config.yaml
+state/
+logs/
+digests/
+*.xlsx
+*.zip
+
+.DS_Store

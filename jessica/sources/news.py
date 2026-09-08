@@ -1,0 +1,159 @@
+"""Новости по эмитентам портфеля и дефолты по рынку.
+
+Официальный источник раскрытия — e-disclosure.ru — закрыт капчей, а капчу
+Jessica не обходит. Поэтому факт события она узнаёт из открытой ленты, а ссылку
+даёт на Интерфакс: человека сайт пускает без препятствий.
+
+Дефолты отслеживаются по всему рынку, а не только по своим бумагам: чужой дефолт
+в том же секторе — повод посмотреть на свои выпуски заранее.
+"""
+
+from __future__ import annotations
+
+import datetime as dt
+import logging
+import re
+import urllib.parse
+from email.utils import parsedate_to_datetime
+
+import requests
+
+log = logging.getLogger(__name__)
+
+RSS = "https://smart-lab.ru/news/rss/"
+UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+)
+DISCLOSURE_SEARCH = "https://www.e-disclosure.ru/poisk-po-kompaniyam?queryString={query}"
+
+# Категория новости определяется по формулировке заголовка. Маркеры — регулярные
+# выражения, потому что часть слов опасно искать подстрокой: «иск» сидит внутри
+# «поиска», «суд» — внутри «судно». Порядок важен: «дефолт по облигациям» —
+# это дефолт, а не погашение.
+CATEGORIES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("default", (r"дефолт", r"не исполнил обязательств", r"неисполнени\w* обязательств",
+                 r"просрочил\w* выплат", r"допустил\w* просрочк", r"не выплатил\w* купон")),
+    ("legal", (r"\bарест", r"\bуголовн", r"\bобыск", r"\bзадержан", r"\bмошенничеств",
+               r"\bбанкротств", r"\bследстви", r"\bск рф\b", r"\bсуд(?:а|ом|у|е|ом)?\b",
+               r"\bиск(?:а|ом|у|ов|и)?\b", r"\bпод стражу", r"\bналоговы\w* претензи",
+               r"\bсанкц", r"\bвнешн\w* управлени", r"\bнационализац")),
+    ("restructuring", (r"реструктуризац\w* (?:долг|облигац|выпуск|займ)", r"пересмотр условий выпуска")),
+    ("rating", (r"рейтинг", r"прогноз изменен", r"отозвал\w* рейтинг")),
+    ("offer", (r"оферт", r"выкуп облигаци", r"досрочно погасит", r"досрочное погашение")),
+    ("report", (r"\bмсфо\b", r"\bрсбу\b", r"отч[её]тность", r"финансовые результаты",
+                r"результаты за", r"чистая прибыль", r"выручка за", r"отчитал")),
+    ("dividend", (r"дивиденд", r"отсечк", r"закрытие реестра")),
+    ("issue", (r"допэмисс", r"дополнительн\w* выпуск", r"\bspo\b", r"\bipo\b", r"размещени\w* акци")),
+    ("buyback", (r"buyback", r"обратн\w* выкуп акци")),
+    ("split", (r"сплит", r"дроблени\w* акци")),
+)
+COMPILED = tuple((name, tuple(re.compile(m, re.I) for m in markers)) for name, markers in CATEGORIES)
+
+# Слова, не помогающие опознать компанию: организационные формы и родовые части
+# названий. Без их отсева «Общество с ограниченной ответственностью» совпадало бы
+# с любым эмитентом страны.
+NOISE = re.compile(
+    r"\b(ооо|оао|пао|ао|мкпао|нао|зао|обб?|бо|об|серии|выпуск|класс|холдинг|финанс\w*|"
+    r"капитал|групп\w*|компани\w*|акционерн\w*|обществ\w*|ограниченной|ответственностью|"
+    r"публичн\w*|открыт\w*|специализированн\w*|международн\w*|министерств\w*|"
+    r"российск\w*|федерац\w*|лизинг|секьюритизаци\w*|фабрика)\b",
+    re.I,
+)
+
+# Коды выпусков вида «БО-П20», «001Р-07R», «оббП05» — они мешают выделить имя компании.
+CODE = re.compile(r"[A-Za-zА-Яа-я]*\d[\w\-.]*|\bП?\d+[A-Za-zА-Яа-я]?\b")
+
+# Государственные бумаги из новостной ленты не отслеживаются: у Минфина
+# не бывает корпоративных событий, а его название совпадает с половиной ленты.
+GOVERNMENT = re.compile(r"офз|министерств\w* финансов", re.I)
+
+
+# Слова, которые встречаются в половине новостей и опознают что угодно.
+STOPWORDS = {
+    "центр", "россии", "рынок", "рынка", "технологии", "корпоративный", "денежный",
+    "имени", "шашина", "грузов", "перевозке", "контейнерах", "мобильные", "альфа",
+    "село", "северо", "запад", "нефть", "банк", "проект", "новый", "перв", "трейд", "групп",
+}
+# Организационные сокращения: опознают форму собственности, а не компанию.
+STOP_ABBR = {"ПАО", "АО", "ООО", "ЗАО", "ОАО", "НАО", "МКПАО", "СФО", "БПИФ", "БО", "ПК", "ОФЗ"}
+
+ABBREVIATION = re.compile(r"\b[А-ЯЁA-Z]{2,5}\b")
+
+
+def company_markers(name: str, issuer: str = "") -> dict[str, set[str]]:
+    """Признаки для опознания компании в заголовке новости.
+
+    Возвращает две группы. `stems` — основы длинных слов: русский язык склоняет
+    названия («Татнефть» → «Татнефти»), поэтому сравнивается начало слова, а не
+    слово целиком. `abbr` — аббревиатуры вроде РЖД или ЛСР: они короткие, и искать
+    их можно только целым словом, иначе совпадёт что угодно.
+    """
+    source = f"{name} {issuer}".strip()
+    if GOVERNMENT.search(source):
+        return {"stems": set(), "abbr": set()}
+
+    abbr = {a for a in ABBREVIATION.findall(source) if a not in STOP_ABBR}
+
+    cleaned = CODE.sub(" ", source.replace("«", " ").replace("»", " ").replace('"', " "))
+    cleaned = NOISE.sub(" ", cleaned)
+    stems = set()
+    for word in re.split(r"[\s,\-/()]+", cleaned):
+        word = word.strip(".").lower()
+        if len(word) >= 4 and word not in STOPWORDS and "." not in word:
+            # Отрезаем окончание: двух букв хватает, чтобы покрыть падежи,
+            # но у коротких слов основу дальше резать нельзя.
+            stems.add(word[:-2] if len(word) > 5 else word[:-1])
+    return {"stems": stems, "abbr": abbr}
+
+
+def mentions(title: str, markers: dict[str, set[str]]) -> bool:
+    """Упомянута ли компания в заголовке."""
+    lowered = title.lower()
+    if any(stem in lowered for stem in markers["stems"]):
+        return True
+    return any(re.search(rf"\b{re.escape(a)}\b", title, re.I) for a in markers["abbr"])
+
+
+def classify(title: str) -> str | None:
+    for category, markers in COMPILED:
+        if any(marker.search(title) for marker in markers):
+            return category
+    return None
+
+
+def disclosure_link(name: str) -> str:
+    """Ссылка на поиск по компании в Интерфаксе — открывать её будет человек."""
+    return DISCLOSURE_SEARCH.format(query=urllib.parse.quote(name))
+
+
+def fetch(*, timeout: float = 20) -> list[dict]:
+    """Последние новости ленты. Пустой список, если лента недоступна."""
+    try:
+        response = requests.get(RSS, headers={"User-Agent": UA}, timeout=timeout)
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        log.warning("Лента новостей недоступна: %s", exc)
+        return []
+
+    items = []
+    for raw in re.findall(r"<item>(.*?)</item>", response.text, re.S):
+        title = re.search(r"<title>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</title>", raw, re.S)
+        link = re.search(r"<link>(.*?)</link>", raw, re.S)
+        published = re.search(r"<pubDate>(.*?)</pubDate>", raw, re.S)
+        if not title:
+            continue
+        when = None
+        if published:
+            try:
+                when = parsedate_to_datetime(published.group(1).strip()).date().isoformat()
+            except (TypeError, ValueError):
+                when = None
+        items.append(
+            {
+                "title": re.sub(r"\s+", " ", title.group(1)).strip(),
+                "url": link.group(1).strip() if link else "",
+                "date": when or dt.date.today().isoformat(),
+            }
+        )
+    return items
