@@ -333,7 +333,7 @@ def news_digest(config: Config, today: dt.date | None = None) -> tuple[str, list
     for item in news.fetch():
         if item["date"] < horizon:
             continue
-        category = news.classify(item["title"])
+        category = news.classify(item["title"], item.get("source", ""))
         if category is None:
             continue
 

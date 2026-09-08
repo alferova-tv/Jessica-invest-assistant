@@ -1,7 +1,7 @@
 """Новости по эмитентам портфеля и дефолты по рынку.
 
 Официальный источник раскрытия — e-disclosure.ru — закрыт капчей, а капчу
-Jessica не обходит. Поэтому факт события она узнаёт из открытой ленты, а ссылку
+Jessica не обходит. Поэтому факт события она узнаёт из открытых лент, а ссылку
 даёт на Интерфакс: человека сайт пускает без препятствий.
 
 Дефолты отслеживаются по всему рынку, а не только по своим бумагам: чужой дефолт
@@ -13,6 +13,7 @@ from __future__ import annotations
 import datetime as dt
 import logging
 import re
+import time
 import urllib.parse
 from email.utils import parsedate_to_datetime
 
@@ -20,7 +21,19 @@ import requests
 
 log = logging.getLogger(__name__)
 
-RSS = "https://smart-lab.ru/news/rss/"
+# Ленты разной природы, и это намеренно. smart-lab даёт телеграфные заголовки
+# корпоративных событий — под них и писались CATEGORIES. The Bell пишет
+# развёрнутыми фразами и в основном про макроэкономику, но иногда первым
+# сообщает о неплатежах конкретной компании, а такая новость приходит раньше,
+# чем событие признают дефолтом.
+#
+# Ленты опрашиваются независимо: молчание одной не должно лишать слова вторую.
+# The Bell вдобавок заблокирован в РФ и держится на VPN, поэтому отваливаться
+# он будет чаще остальных — и это штатная ситуация, а не сбой.
+FEEDS: tuple[tuple[str, str], ...] = (
+    ("smart-lab", "https://smart-lab.ru/news/rss/"),
+    ("the-bell", "https://thebell.io/feed"),
+)
 UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
@@ -48,7 +61,38 @@ CATEGORIES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("buyback", (r"buyback", r"обратн\w* выкуп акци")),
     ("split", (r"сплит", r"дроблени\w* акци")),
 )
-COMPILED = tuple((name, tuple(re.compile(m, re.I) for m in markers)) for name, markers in CATEGORIES)
+
+# Часть формулировок опознаёт не событие, а манеру издания, и общей таблице
+# только вредит. «Проблемы с выплатами» у The Bell — это почти всегда неплатёж
+# конкретной компании, а на потоке smart-lab та же фраза цепляет обзоры рынка
+# потребкредитования. Такие маркеры живут отдельно и применяются только к своей
+# ленте; общая таблица остаётся сводом формулировок, верных для всех источников.
+#
+# Категория берётся из CATEGORIES — завести здесь новую нельзя, и намеренно:
+# набор категорий определяет `relevant_news` в events.py, а он про ленты не знает.
+SOURCE_CATEGORIES: dict[str, dict[str, tuple[str, ...]]] = {
+    "the-bell": {
+        # Развёрнутые описания неплатежа. До слова «дефолт» такая новость
+        # доходит месяцами, а держателю облигации знать нужно сразу.
+        "default": (r"проблем\w* с выплат", r"задерж\w*(?:ает|ки|ку)? выплат",
+                    r"перестал\w* платить", r"не мож\w* расплатиться",
+                    r"нечем платить", r"не расплатил"),
+        "restructuring": (r"просит отсрочк", r"договаривается с кредитор",
+                          r"перенос\w* выплат", r"уговарива\w* кредитор"),
+    },
+}
+
+
+def _compile(extra: dict[str, tuple[str, ...]]) -> tuple[tuple[str, tuple[re.Pattern, ...]], ...]:
+    """Общая таблица плюс маркеры одной ленты. Порядок категорий сохраняется."""
+    return tuple(
+        (name, tuple(re.compile(m, re.I) for m in markers + extra.get(name, ())))
+        for name, markers in CATEGORIES
+    )
+
+
+COMPILED = _compile({})
+COMPILED_BY_SOURCE = {source: _compile(extra) for source, extra in SOURCE_CATEGORIES.items()}
 
 # Слова, не помогающие опознать компанию: организационные формы и родовые части
 # названий. Без их отсева «Общество с ограниченной ответственностью» совпадало бы
@@ -115,8 +159,9 @@ def mentions(title: str, markers: dict[str, set[str]]) -> bool:
     return any(re.search(rf"\b{re.escape(a)}\b", title, re.I) for a in markers["abbr"])
 
 
-def classify(title: str) -> str | None:
-    for category, markers in COMPILED:
+def classify(title: str, source: str = "") -> str | None:
+    """Категория события. Без указания ленты работают только общие маркеры."""
+    for category, markers in COMPILED_BY_SOURCE.get(source, COMPILED):
         if any(marker.search(title) for marker in markers):
             return category
     return None
@@ -127,20 +172,32 @@ def disclosure_link(name: str) -> str:
     return DISCLOSURE_SEARCH.format(query=urllib.parse.quote(name))
 
 
-def fetch(*, timeout: float = 20) -> list[dict]:
-    """Последние новости ленты. Пустой список, если лента недоступна."""
-    try:
-        response = requests.get(RSS, headers={"User-Agent": UA}, timeout=timeout)
-        response.raise_for_status()
-    except requests.RequestException as exc:
-        log.warning("Лента новостей недоступна: %s", exc)
-        return []
+def _download(name: str, url: str, timeout: float) -> str:
+    """Тело ленты. Пустая строка, если она так и не ответила.
 
+    VPN изредка моргает, поэтому разовый таймаут — повод повторить попытку,
+    а не считать ленту мёртвой.
+    """
+    for attempt in range(2):
+        try:
+            response = requests.get(url, headers={"User-Agent": UA}, timeout=timeout)
+            response.raise_for_status()
+            return response.text
+        except requests.RequestException as exc:
+            if attempt:
+                log.warning("Лента %s недоступна: %s", name, exc)
+            else:
+                time.sleep(2)
+    return ""
+
+
+def _parse(raw: str, source: str) -> list[dict]:
+    """Записи ленты. Формат RSS у всех источников одинаков, разбор общий."""
     items = []
-    for raw in re.findall(r"<item>(.*?)</item>", response.text, re.S):
-        title = re.search(r"<title>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</title>", raw, re.S)
-        link = re.search(r"<link>(.*?)</link>", raw, re.S)
-        published = re.search(r"<pubDate>(.*?)</pubDate>", raw, re.S)
+    for chunk in re.findall(r"<item>(.*?)</item>", raw, re.S):
+        title = re.search(r"<title>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</title>", chunk, re.S)
+        link = re.search(r"<link>(.*?)</link>", chunk, re.S)
+        published = re.search(r"<pubDate>(.*?)</pubDate>", chunk, re.S)
         if not title:
             continue
         when = None
@@ -154,6 +211,20 @@ def fetch(*, timeout: float = 20) -> list[dict]:
                 "title": re.sub(r"\s+", " ", title.group(1)).strip(),
                 "url": link.group(1).strip() if link else "",
                 "date": when or dt.date.today().isoformat(),
+                "source": source,
             }
         )
     return items
+
+
+def fetch(*, timeout: float = 20) -> list[dict]:
+    """Последние новости всех лент. Недоступная лента просто не даёт записей."""
+    items: list[dict] = []
+    for name, url in FEEDS:
+        items.extend(_parse(_download(name, url, timeout), name))
+    return items
+
+
+def feed_status(*, timeout: float = 20) -> list[tuple[str, int]]:
+    """Сколько записей отдаёт каждая лента — для `jessica doctor`."""
+    return [(name, len(_parse(_download(name, url, timeout), name))) for name, url in FEEDS]

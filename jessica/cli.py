@@ -91,12 +91,18 @@ def cmd_news(config: Config, args) -> int:
 def cmd_doctor(config: Config, args) -> int:
     import requests
     from .sources.smartlab import fetch_coupons
+    from .sources import news
 
     print("Проверка источников и связи:\n")
     checks: list[tuple[str, bool, str]] = []
 
     coupons = fetch_coupons("SU26238RMFS4")
     checks.append(("smart-lab (купоны)", bool(coupons), f"{len(coupons)} купонов по ОФЗ 26238"))
+
+    # Лент несколько, и падают они порознь: The Bell живёт за VPN и отваливается
+    # первым. Молчащую ленту видно только здесь — в `news` она просто ничего не даёт.
+    for name, count in news.feed_status():
+        checks.append((f"лента {name}", count > 0, f"{count} записей"))
 
     # VPN изредка моргает, и одна неудачная попытка — не повод пугать словом «СБОЙ».
     for attempt in range(3):
