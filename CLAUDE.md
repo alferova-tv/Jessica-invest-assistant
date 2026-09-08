@@ -129,6 +129,6 @@ jessica run                        # один проход по расписан
 
 ## Состояние
 
-Тестов нет (`tests/` пуста), git не инициализирован, `pdfplumber` не установлен —
-ветка разбора PDF в `holdings.py` сработает только после `pip install pdfplumber`.
-Зависимости — в `requirements.txt`.
+Тестов нет (`tests/` пуста), `pdfplumber` не установлен — ветка разбора PDF
+в `holdings.py` сработает только после `pip install pdfplumber`.
+Зависимости — в `requirements.txt`. Git инициализирован, удалённого репозитория нет.
