@@ -5,6 +5,7 @@
     jessica refresh   пересобрать календарь выплат
     jessica calendar  показать ближайшие выплаты
     jessica check     отправить уведомления на сегодня
+    jessica market    сводка по рынку: индекс МосБиржи и курс доллара
     jessica run       один проход по расписанию (её запускает launchd)
 """
 
@@ -88,10 +89,18 @@ def cmd_news(config: Config, args) -> int:
     return 0
 
 
+def cmd_market(config: Config, args) -> int:
+    import re
+
+    text = events.send_market(config, dry_run=args.dry_run)
+    print(re.sub(r"<[^>]+>", "", text) if text else "источники молчат, сводки нет")
+    return 0
+
+
 def cmd_doctor(config: Config, args) -> int:
     import requests
     from .sources.smartlab import fetch_coupons
-    from .sources import news
+    from .sources import market, news
 
     print("Проверка источников и связи:\n")
     checks: list[tuple[str, bool, str]] = []
@@ -103,6 +112,21 @@ def cmd_doctor(config: Config, args) -> int:
     # первым. Молчащую ленту видно только здесь — в `news` она просто ничего не даёт.
     for name, count in news.feed_status():
         checks.append((f"лента {name}", count > 0, f"{count} записей"))
+
+    # Источники утренней сводки. ISS Мосбиржи годами был закрыт из-под VPN
+    # и может закрыться снова — увидеть это можно только здесь.
+    index = market.fetch_index(events.MARKET_INDEX, timeout=config.moex_timeout)
+    checks.append((
+        f"Мосбиржа ({events.MARKET_INDEX})",
+        index is not None,
+        f"{index['value']} на {index['date']}" if index else "ISS не ответил",
+    ))
+    usd = market.fetch_cbr_usd()
+    checks.append((
+        "ЦБ (курс доллара)",
+        usd is not None,
+        f"{usd['value']:.4f} ₽ на {usd['date']}" if usd else "cbr.ru не ответил",
+    ))
 
     # VPN изредка моргает, и одна неудачная попытка — не повод пугать словом «СБОЙ».
     for attempt in range(3):
@@ -139,8 +163,9 @@ def cmd_doctor(config: Config, args) -> int:
 def cmd_run(config: Config, args) -> int:
     """Один проход по расписанию: launchd будит Jessica ежечасно.
 
-    Раз в сутки обновляем данные, утром рассылаем события дня, первого числа —
-    календарь на месяц. Проход идемпотентен: повтор в тот же час ничего не задваивает.
+    Раз в сутки обновляем данные, утром рассылаем события дня, следом сводку
+    по рынку, первого числа — календарь на месяц. Проход идемпотентен: повтор
+    в тот же час ничего не задваивает.
     """
     now = dt.datetime.now()
     marker = config.state_file("last_run.json")
@@ -165,6 +190,15 @@ def cmd_run(config: Config, args) -> int:
                 notify.send(config, text)
             state["monthly"] = today
 
+    # Сводка по рынку — отдельным часом и отдельной отметкой: она зависит
+    # от живых торгов, а события дня — только от календаря.
+    weekend = now.weekday() >= 5 and not config.market_weekends
+    if now.hour >= config.market_hour and state.get("market") != today and not weekend:
+        # Пустой ответ означает, что оба источника промолчали: не отмечаем
+        # рассылку выполненной, и следующий проход попробует ещё раз.
+        if events.send_market(config, now.date()):
+            state["market"] = today
+
     marker.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
     return 0
 
@@ -180,6 +214,10 @@ def main(argv: list[str] | None = None) -> int:
     news_parser = sub.add_parser("news", help="новости по эмитентам и дефолты")
     news_parser.add_argument("--dry-run", action="store_true", help="показать, но не отправлять")
     news_parser.set_defaults(run=cmd_news)
+    market_parser = sub.add_parser("market", help="индекс МосБиржи и курс доллара")
+    market_parser.add_argument("--dry-run", action="store_true", help="показать, но не отправлять")
+    market_parser.set_defaults(run=cmd_market)
+
     sub.add_parser("run", help="проход по расписанию").set_defaults(run=cmd_run)
 
     calendar_parser = sub.add_parser("calendar", help="ближайшие выплаты")

@@ -69,6 +69,18 @@ class Config:
     def morning_hour(self) -> int:
         return int(self._raw.get("schedule", {}).get("morning_hour", 9))
 
+    @property
+    def market_hour(self) -> int:
+        """Час сводки по рынку. Отдельный от morning_hour: события дня приходят
+        раньше открытия торгов, а индексу до открытия взяться неоткуда."""
+        return int(self._raw.get("schedule", {}).get("market_hour", 10))
+
+    @property
+    def market_weekends(self) -> bool:
+        """Слать ли сводку в субботу и воскресенье. По умолчанию нет: торгов
+        не было, и пришло бы то же пятничное число третий раз подряд."""
+        return bool(self._raw.get("schedule", {}).get("market_weekends", False))
+
     # Пути к состоянию — собраны здесь, чтобы модули не выдумывали их каждый по-своему.
     @property
     def state_dir(self) -> Path:

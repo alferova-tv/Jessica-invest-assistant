@@ -76,9 +76,19 @@ def plural(count: int, one: str, few: str, many: str) -> str:
     return many
 
 
+def number(value: float, places: int = 2) -> str:
+    """1234.5 → «1 234,50». Курс ЦБ публикуется с четырьмя знаками, оттого и places."""
+    return f"{value:,.{places}f}".replace(",", " ").replace(".", ",")
+
+
 def money(value: float) -> str:
     """1234.5 → «1 234,50»."""
-    return f"{value:,.2f}".replace(",", " ").replace(".", ",")
+    return number(value)
+
+
+def signed(value: float, places: int = 2) -> str:
+    """«+0,28» или «-7,12»: без знака рост не отличить от падения."""
+    return f"{value:+,.{places}f}".replace(",", " ").replace(".", ",")
 
 
 def human_date(value: dt.date) -> str:
@@ -390,3 +400,104 @@ def send_news(config: Config, today: dt.date | None = None, *, dry_run: bool = F
     if notify.send(config, text, preview=False):
         _remember(config, keys)
     return text
+
+
+# --------------------------------------------------------------------- рынок
+
+# IMOEX2, а не IMOEX: он считается за весь торговый день, включая утреннюю
+# и вечернюю сессии, — к десяти утра по нему уже есть сегодняшнее движение.
+MARKET_INDEX = "IMOEX2"
+
+
+def _trend(change: float) -> str:
+    """Стрелка направления: в сплошном тексте знак «минус» глазом теряется."""
+    if change > 0:
+        return "🔺"
+    if change < 0:
+        return "🔻"
+    return "➡️"
+
+
+def _change_line(value: float, previous: float, base: str, unit: str = "") -> str:
+    """Строка изменения: абсолютное, процентное и к чему именно оно посчитано.
+
+    База называется датой, а не словом «вчера»: после праздников предыдущий
+    торговый день отстоит на неделю, и «вчера» было бы неправдой.
+    """
+    change = value - previous
+    percent = change / previous * 100
+    return (
+        f"   {_trend(change)} <b>{signed(change)}{unit} ({signed(percent)}%)</b>"
+        f"  <i>· к {base}</i>"
+    )
+
+
+def _index_block(index: dict | None) -> list[str]:
+    if index is None:
+        return [f"📊 <b>{MARKET_INDEX}</b> — <i>Мосбиржа не ответила</i>"]
+
+    head = f"📊 <b>{MARKET_INDEX}</b> — {number(index['value'])}"
+    date = human_date(dt.date.fromisoformat(index["date"]))
+    if not index["live"]:
+        # Выходной или праздник: торгов сегодня не было, и выдавать последнее
+        # значение за сегодняшнее нельзя.
+        head += f"  <i>· закрытие {date}</i>"
+    elif index["time"]:
+        head += f"  <i>· {index['time'][:5]}</i>"
+
+    lines = [head]
+    if index["previous"] is not None:
+        base = human_date(dt.date.fromisoformat(index["previous_date"]))
+        lines.append(_change_line(index["value"], index["previous"], f"закрытию {base}"))
+    return lines
+
+
+def _usd_block(usd: dict | None, today: dt.date) -> list[str]:
+    if usd is None:
+        return ["💵 <b>Доллар ЦБ</b> — <i>ЦБ не ответил</i>"]
+
+    head = f"💵 <b>Доллар ЦБ</b> — {number(usd['value'], 4)} ₽"
+    # Курс ставится по рабочим дням и действует до следующего установленного:
+    # в субботу на экране пятничный, и дату нужно назвать.
+    if usd["date"] != today.isoformat():
+        head += f"  <i>· на {human_date(dt.date.fromisoformat(usd['date']))}</i>"
+
+    lines = [head]
+    if usd["previous"] is not None:
+        base = human_date(dt.date.fromisoformat(usd["previous_date"]))
+        lines.append(_change_line(usd["value"], usd["previous"], base, unit=" ₽"))
+    return lines
+
+
+def market_digest(config: Config, today: dt.date | None = None) -> str:
+    """Утренняя сводка: индекс МосБиржи и официальный курс доллара.
+
+    Источники независимы, и молчание одного не отменяет сводку: ISS Мосбиржи
+    из-под VPN держится хуже, чем сайт ЦБ, а курс доллара нужен не меньше индекса.
+    Пустая строка возвращается, только если молчат оба, — тогда `run` не отметит
+    рассылку выполненной и повторит попытку через час.
+    """
+    from .sources import market
+
+    today = today or dt.date.today()
+    index = market.fetch_index(MARKET_INDEX, timeout=config.moex_timeout, today=today)
+    usd = market.fetch_cbr_usd(today=today)
+    if index is None and usd is None:
+        return ""
+
+    return "\n".join(
+        [f"📈 <b>РЫНОК · {human_date(today)}</b>", RULE, ""]
+        + _index_block(index)
+        + [""]
+        + _usd_block(usd, today)
+    )
+
+
+def send_market(config: Config, today: dt.date | None = None, *, dry_run: bool = False) -> str:
+    """Отправляет сводку. Пустая строка означает «не ушло» — и повтор через час."""
+    from . import notify
+
+    text = market_digest(config, today)
+    if not text or dry_run:
+        return text
+    return text if notify.send(config, text) else ""
