@@ -114,12 +114,14 @@ def cmd_doctor(config: Config, args) -> int:
         checks.append((f"лента {name}", count > 0, f"{count} записей"))
 
     # Источники утренней сводки. ISS Мосбиржи годами был закрыт из-под VPN
-    # и может закрыться снова — увидеть это можно только здесь.
+    # и может закрыться снова; за ним стоят Alor и smart-lab. Что именно
+    # ответило — видно по названию индекса: у smart-lab это IMOEX, не IMOEX2.
     index = market.fetch_index(events.MARKET_INDEX, timeout=config.moex_timeout)
     checks.append((
         f"Мосбиржа ({events.MARKET_INDEX})",
         index is not None,
-        f"{index['value']} на {index['date']}" if index else "ISS не ответил",
+        f"{index['secid']} {index['value']} на {index['date']}"
+        if index else "ни один источник индекса не ответил",
     ))
     usd = market.fetch_cbr_usd()
     checks.append((

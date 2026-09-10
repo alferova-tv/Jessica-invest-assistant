@@ -441,7 +441,9 @@ def _index_block(index: dict | None) -> list[str]:
     if index is None:
         return [f"📊 <b>{MARKET_INDEX}</b> — <i>Мосбиржа не ответила</i>"]
 
-    head = f"📊 <b>{MARKET_INDEX}</b> — {number(index['value'])}"
+    # Какой именно индекс ответил, тот и называем: запасной smart-lab
+    # отдаёт IMOEX, а не IMOEX2, и выдавать одно за другое нельзя.
+    head = f"📊 <b>{index.get('secid') or MARKET_INDEX}</b> — {number(index['value'])}"
     date = human_date(dt.date.fromisoformat(index["date"]))
     if not index["live"]:
         # Выходной или праздник: торгов сегодня не было, и выдавать последнее
