@@ -359,6 +359,8 @@ PARSERS = {"tbank": _parse_tbank, "alpha": _parse_alpha, "generic": _parse_gener
 
 def latest_report(portfolio: Portfolio) -> Path | None:
     """Самый свежий пригодный файл в папке портфеля."""
+    if portfolio.reports_dir is None:
+        return None
     if not portfolio.reports_dir.exists():
         return None
     files = [

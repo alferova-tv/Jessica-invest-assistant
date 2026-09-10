@@ -25,7 +25,10 @@ def home() -> Path:
 class Portfolio:
     key: str
     title: str
-    reports_dir: Path
+    # Папка выгрузок. У портфеля, который берётся из API брокера, её нет.
+    reports_dir: Path | None
+    # Откуда брать состав: "reports" — брокерские выгрузки, "tinvest" — T-Invest API.
+    source: str = "reports"
 
 
 class Config:
@@ -53,7 +56,12 @@ class Config:
     @cached_property
     def portfolios(self) -> list[Portfolio]:
         return [
-            Portfolio(key=key, title=spec["title"], reports_dir=self.root / spec["reports_dir"])
+            Portfolio(
+                key=key,
+                title=spec["title"],
+                reports_dir=self.root / spec["reports_dir"] if spec.get("reports_dir") else None,
+                source=spec.get("source", "reports"),
+            )
             for key, spec in self._raw.get("portfolios", {}).items()
         ]
 
@@ -80,6 +88,22 @@ class Config:
         """Слать ли сводку в субботу и воскресенье. По умолчанию нет: торгов
         не было, и пришло бы то же пятничное число третий раз подряд."""
         return bool(self._raw.get("schedule", {}).get("market_weekends", False))
+
+    @property
+    def tinvest_token(self) -> str:
+        """Read-only токен T-Invest API. Пустая строка — токен не задан."""
+        return str((self._raw.get("tinvest") or {}).get("token") or "")
+
+    @property
+    def tinvest_account(self) -> str | None:
+        """Номер брокерского счёта. Обычно не нужен: счёт один, его находит API."""
+        account = (self._raw.get("tinvest") or {}).get("account")
+        return str(account) if account else None
+
+    @property
+    def refresh_retry_hours(self) -> int:
+        """Как часто `run` повторяет сбор состава, если API брокера не ответил."""
+        return int(self._raw.get("schedule", {}).get("refresh_retry_hours", 3))
 
     # Пути к состоянию — собраны здесь, чтобы модули не выдумывали их каждый по-своему.
     @property
