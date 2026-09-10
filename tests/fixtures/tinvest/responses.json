@@ -1,0 +1,30 @@
+{
+  "GetAccounts": {
+    "accounts": [
+      {"id": "0000000001", "type": "ACCOUNT_TYPE_TINKOFF", "name": "Брокерский счёт", "status": "ACCOUNT_STATUS_OPEN"},
+      {"id": "0000000002", "type": "ACCOUNT_TYPE_TINKOFF_IIS", "name": "ИИС", "status": "ACCOUNT_STATUS_OPEN"}
+    ]
+  },
+  "GetPortfolio": {
+    "positions": [
+      {"instrumentUid": "uid-softline", "instrumentType": "bond", "quantity": {"units": "20", "nano": 0}},
+      {"instrumentUid": "uid-ofz", "instrumentType": "bond", "quantity": {"units": "7", "nano": 0}},
+      {"instrumentUid": "uid-alium", "instrumentType": "bond", "quantity": {"units": "3", "nano": 0}},
+      {"instrumentUid": "uid-sfo", "instrumentType": "bond", "quantity": {"units": "12", "nano": 500000000}},
+      {"instrumentUid": "uid-share", "instrumentType": "share", "quantity": {"units": "5", "nano": 0}},
+      {"instrumentUid": "uid-rub", "instrumentType": "currency", "quantity": {"units": "1234", "nano": 560000000}}
+    ]
+  },
+  "BondBy": {
+    "uid-softline": {"instrument": {"isin": "RU000A10EA08", "ticker": "RU000A10EA08", "name": "Софтлайн 002Р-02", "assetUid": "asset-softline"}},
+    "uid-ofz": {"instrument": {"isin": "RU000A10D517", "ticker": "SU26253RMFS3", "name": "ОФЗ 26253", "assetUid": "asset-ofz"}},
+    "uid-alium": {"instrument": {"isin": "RU000A10FG84", "ticker": "RU000A10FG84", "name": "АЛИУМ01Р1", "assetUid": "asset-alium"}},
+    "uid-sfo": {"instrument": {"isin": "RU000A10CFK2", "ticker": "RU000A10CFK2", "name": "Кредитный поток 2.0", "assetUid": "asset-sfo"}}
+  },
+  "GetAssetBy": {
+    "asset-softline": {"asset": {"security": {"bond": {"borrowName": "ПАО \"Софтлайн\""}}, "brand": {"company": "СофтЛайн"}}},
+    "asset-ofz": {"asset": {"security": {"bond": {"borrowName": "Министерство финансов Российской Федерации"}}, "brand": {"company": "Минфин России"}}},
+    "asset-alium": {"asset": {"security": {"bond": {"borrowName": ""}}, "brand": {"company": "Алиум"}}},
+    "asset-sfo": {"asset": {"security": {"bond": {"borrowName": "ООО \"СФО ТБ-4\""}}, "brand": {"company": "Т-Банк"}}}
+  }
+}
