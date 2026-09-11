@@ -35,10 +35,57 @@ def _log(config: Config) -> None:
     )
 
 
+def refresh_due(state: dict, now: dt.datetime, retry_hours: int) -> bool:
+    """Пора ли собирать состав. Раз в сутки; если сегодняшняя попытка не удалась
+    (API брокера не ответил), повтор — не раньше чем через retry_hours."""
+    if state.get("refreshed") == now.date().isoformat():
+        return False
+    try:
+        attempt = dt.datetime.fromisoformat(state["refresh_attempt"])
+    except (KeyError, ValueError):
+        return True
+    return attempt.date() != now.date() or now - attempt >= dt.timedelta(hours=retry_hours)
+
+
+def _composition(data: dict) -> set[tuple[str, str, float]]:
+    return {
+        (key, position["isin"], position["quantity"])
+        for key, block in data.get("portfolios", {}).items()
+        for position in block.get("positions", [])
+    }
+
+
+def rebuild_needed(state: dict, now: dt.datetime, before: dict, after: dict) -> bool:
+    """Пересобирать ли календарь. Первая попытка дня — всегда: у smart-lab
+    обновляются купоны. Повторная — только если состав изменился, иначе это
+    сорок секунд и полсотни запросов впустую."""
+    first_today = not str(state.get("refresh_attempt", "")).startswith(now.date().isoformat())
+    return first_today or _composition(before) != _composition(after)
+
+
+def stale_portfolios(data: dict) -> list[str]:
+    return [block["title"] for block in data.get("portfolios", {}).values() if block.get("stale")]
+
+
+def _warn(data: dict) -> None:
+    """То, что нельзя пропустить: устаревший состав и бумаги, по которым
+    новости молча не найдутся."""
+    from .sources import news
+
+    for block in data["portfolios"].values():
+        if block.get("stale"):
+            since = (block.get("synced") or "").replace("T", " ") or block.get("source_file") or "неизвестно когда"
+            print(f"⚠ {block['title']}: API не ответил, состав от {since}")
+        for position in block["positions"]:
+            if news.silent(position["name"], position.get("issuer", "")):
+                print(f"⚠ без маркеров: {position['name']} ({position['isin']}) — новости по бумаге не найдутся")
+
+
 def cmd_import(config: Config, args) -> int:
     data = holdings.collect(config)
     for block in data["portfolios"].values():
-        print(f"\n{block['title']} — {block['source_file'] or 'выгрузки нет'} [{block['format']}]")
+        origin = block["source_file"] or ("T-Invest API" if block["format"] == "tinvest-api" else "выгрузки нет")
+        print(f"\n{block['title']} — {origin} [{block['format']}]")
         for position in block["positions"]:
             print(
                 f"  {position['kind']:6} {position['isin']:14}"
@@ -47,10 +94,13 @@ def cmd_import(config: Config, args) -> int:
         print(f"  всего позиций: {len(block['positions'])}")
         for skipped in block["skipped"]:
             print(f"  ПРОПУЩЕНО: {skipped[:120]}")
+    print()
+    _warn(data)
     return 0
 
 
 def cmd_refresh(config: Config, args) -> int:
+    _warn(holdings.collect(config))
     schedule = cal.build(config)
     print(f"событий в календаре: {len(schedule['events'])}")
     if schedule["incomplete"]:
@@ -154,6 +204,16 @@ def cmd_doctor(config: Config, args) -> int:
         checks.append((name, path.exists(), str(path.parent)))
 
     for portfolio in config.portfolios:
+        if portfolio.source == "tinvest":
+            from .sources import tinvest
+
+            bonds = tinvest.fetch_bonds(config.tinvest_token, account=config.tinvest_account)
+            checks.append((
+                "T-Invest API",
+                bonds is not None,
+                f"{len(bonds)} облигаций" if bonds is not None else "API не ответил",
+            ))
+            continue
         report = holdings.latest_report(portfolio)
         checks.append((f"выгрузка «{portfolio.title}»", report is not None, report.name if report else "нет файла"))
 
@@ -174,10 +234,17 @@ def cmd_run(config: Config, args) -> int:
     state = json.loads(marker.read_text(encoding="utf-8")) if marker.exists() else {}
     today = now.date().isoformat()
 
-    if state.get("refreshed") != today:
-        holdings.collect(config)
-        cal.build(config)
-        state["refreshed"] = today
+    # Состав — раз в сутки. Если API брокера не ответил, прошлый состав остаётся,
+    # а сбор повторяется через refresh_retry_hours: VPN то пускает к брокеру, то нет.
+    if refresh_due(state, now, config.refresh_retry_hours):
+        path = config.state_file("holdings.json")
+        before = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+        after = holdings.collect(config)
+        if rebuild_needed(state, now, before, after):
+            cal.build(config)
+        state["refresh_attempt"] = now.isoformat(timespec="seconds")
+        if not stale_portfolios(after):
+            state["refreshed"] = today
 
     # Новости смотрим каждый час: дефолт или отчётность ждать до утра незачем.
     events.send_news(config, now.date())
