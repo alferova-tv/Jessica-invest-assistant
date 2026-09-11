@@ -28,6 +28,7 @@ from dataclasses import dataclass, asdict, field
 from pathlib import Path
 
 from .config import Config, Portfolio
+from .sources import tinvest
 
 log = logging.getLogger(__name__)
 
@@ -36,6 +37,10 @@ ISIN = re.compile(r"\b(?:[A-Z]{2}[A-Z0-9]{9}\d|SU\d{5}RMFS\d)\b")
 
 BOND, SHARE, FUND, UNKNOWN = "bond", "share", "fund", "unknown"
 READABLE = {".xlsx", ".xlsm", ".csv", ".html", ".htm", ".pdf", ".zip"}
+
+# Кэш сведений о бумагах из T-Invest API: ISIN и эмитент выпуска не меняются,
+# а каждый лишний запрос — лишний шанс попасть на обрыв VPN.
+INSTRUMENTS = "tinvest_instruments.json"
 
 Sheet = tuple[str, list[list[str]]]
 
@@ -397,10 +402,69 @@ def parse_portfolio(portfolio: Portfolio) -> tuple[list[Position], list[str], Pa
     return list(merged.values()), skipped, path, broker
 
 
+def _read_json(path: Path) -> dict:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def _collect_tinvest(config: Config, portfolio: Portfolio, previous: dict | None) -> dict:
+    """Блок портфеля из T-Invest API. Если API не ответил — прошлый блок
+    с пометкой stale: календарь строится на последнем известном составе."""
+    cache = config.state_file(INSTRUMENTS)
+    bonds = tinvest.fetch_bonds(
+        config.tinvest_token, account=config.tinvest_account, known=_read_json(cache)
+    )
+    if bonds is None:
+        block = dict(previous) if previous else {
+            "title": portfolio.title,
+            "source_file": None,
+            "format": "tinvest-api",
+            "synced": None,
+            "positions": [],
+            "skipped": [],
+        }
+        block["stale"] = True
+        return block
+
+    cache.write_text(
+        json.dumps(
+            {bond["uid"]: {field: bond[field] for field in tinvest.FIELDS} for bond in bonds},
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    positions = [
+        Position(bond["isin"], bond["quantity"], portfolio.key, bond["name"], BOND,
+                 bond["issuer"], bond["code"])
+        for bond in bonds
+    ]
+    return {
+        "title": portfolio.title,
+        "source_file": None,
+        "format": "tinvest-api",
+        "synced": dt.datetime.now().isoformat(timespec="seconds"),
+        "stale": False,
+        "positions": [p.as_dict() for p in sorted(positions, key=lambda p: (p.kind, p.name))],
+        "skipped": [],
+    }
+
+
 def collect(config: Config) -> dict:
-    """Собирает позиции обоих портфелей и пишет holdings.json."""
+    """Собирает позиции всех портфелей и пишет holdings.json."""
+    target = config.state_file("holdings.json")
+    previous = _read_json(target).get("portfolios", {})
     holdings = {"updated": dt.datetime.now().isoformat(timespec="seconds"), "portfolios": {}}
     for portfolio in config.portfolios:
+        if portfolio.source == "tinvest":
+            holdings["portfolios"][portfolio.key] = _collect_tinvest(
+                config, portfolio, previous.get(portfolio.key)
+            )
+            continue
+        if portfolio.source != "reports":
+            raise SystemExit(f"Неизвестный источник портфеля «{portfolio.title}»: {portfolio.source}")
         positions, skipped, path, broker = parse_portfolio(portfolio)
         holdings["portfolios"][portfolio.key] = {
             "title": portfolio.title,
@@ -409,7 +473,5 @@ def collect(config: Config) -> dict:
             "positions": [p.as_dict() for p in sorted(positions, key=lambda p: (p.kind, p.name))],
             "skipped": skipped,
         }
-    config.state_file("holdings.json").write_text(
-        json.dumps(holdings, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    target.write_text(json.dumps(holdings, ensure_ascii=False, indent=2), encoding="utf-8")
     return holdings
