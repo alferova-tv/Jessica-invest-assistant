@@ -1,17 +1,15 @@
-"""Разбор брокерских выгрузок в единый список позиций.
+"""Сборка состава портфелей в единый список позиций — state/holdings.json.
 
-Состав портфелей приходит только отсюда: API брокеров недоступны, а вручную
-тикеры не заносятся. Вы кладёте отчёт в папку портфеля, Jessica берёт самый
-свежий файл и вытаскивает из него ISIN, количество и тип бумаги.
+Источник задаётся в config.yaml для каждого портфеля:
 
-Формат отчёта у брокеров разный настолько, что общей эвристикой не обойтись:
+* `source: tinvest` — T-Invest API брокера (см. sources/tinvest.py). Если API
+  не ответил, остаётся прошлый состав с пометкой stale.
+* `source: reports` (по умолчанию) — брокерская выгрузка: Jessica берёт самый
+  свежий файл в папке портфеля и вытаскивает из него ISIN, количество и тип.
 
-* Т-Банк — обычная таблица позиций, плюс отдельный справочник бумаг,
-  где указан тип («акции обыкн», «обл прочих рез») и эмитент.
-* Альфа — количество и название в одной строке, а ISIN отдельной строкой
-  под ней; тип бумаги задан разделом таблицы («Акции», «Облигации»).
-
-Поэтому здесь два точных парсера и общий запасной на случай незнакомого файла.
+Выгрузка Альфы устроена так: количество и название в одной строке, а ISIN
+отдельной строкой под ней; тип бумаги задан разделом таблицы («Акции»,
+«Облигации»). Для неё точный парсер, для незнакомого файла — общий запасной.
 Колонки ищутся по тексту заголовка, а не по номеру: так разбор переживёт
 смещение столбцов при очередной правке формата.
 """
@@ -224,60 +222,6 @@ def _classify(text: str) -> str:
 
 # -------------------------------------------------------------- парсеры брокеров
 
-def _parse_tbank(sheets: list[Sheet], key: str) -> tuple[list[Position], list[str]]:
-    rows = sheets[0][1]
-
-    # Справочник бумаг: он даёт тип (акция или облигация) и эмитента —
-    # именно по типу дальше решается, какие новости присылать, а какие нет.
-    catalogue: dict[str, tuple[str, str]] = {}
-    catalogue_rows: set[int] = set()  # чтобы не считать их пропущенными позициями
-    search_from = 0
-    while (found := _find_header(rows[search_from:], "isin", "тип", "наименование эмитента")):
-        offset, headers = found
-        start = search_from + offset
-        isin_col = _column(headers, "isin")
-        kind_col = _column(headers, "тип")
-        issuer_col = _column(headers, "наименование эмитента")
-        catalogue_rows.add(start)
-        for number, row in enumerate(rows[start + 1:], start=start + 1):
-            isin = _cell(row, isin_col)
-            if not ISIN.fullmatch(isin):
-                break
-            catalogue[isin] = (_classify(_cell(row, kind_col)), _cell(row, issuer_col))
-            catalogue_rows.add(number)
-        search_from = start + 1
-
-    found = _find_header(rows, "isin", "исходящий остаток")
-    if not found:
-        return [], ["не найден раздел позиций"]
-    start, headers = found
-    isin_col = _column(headers, "isin")
-    name_col = _column(headers, "наименование актива")
-    code_col = _column(headers, "код актива")
-    # «Плановый» учитывает незавершённые сделки — это и есть актуальная позиция.
-    qty_col = _column(headers, "плановый исходящий остаток") or _column(headers, "исходящий остаток")
-
-    positions, skipped = [], []
-    for number, row in enumerate(rows[start + 1:], start=start + 1):
-        isin = _cell(row, isin_col)
-        if not ISIN.fullmatch(isin):
-            # Строка со «своим» ISIN не в колонке позиций — либо справочник
-            # (он уже разобран выше), либо действительно потерянная бумага.
-            if number not in catalogue_rows and ISIN.search(" ".join(row)):
-                skipped.append(" | ".join(c for c in row if c.strip())[:160])
-            continue
-        quantity = _number(_cell(row, qty_col))
-        if not quantity:  # ноль — бумага продана внутри периода, в портфеле её нет
-            continue
-        kind, issuer = catalogue.get(isin, (UNKNOWN, ""))
-        code = _cell(row, code_col)
-        positions.append(
-            Position(isin, quantity, key, _cell(row, name_col), kind, issuer,
-                     code="" if code == isin else code)
-        )
-    return positions, skipped
-
-
 def _parse_alpha(sheets: list[Sheet], key: str) -> tuple[list[Position], list[str]]:
     rows = next((rows for title, rows in sheets if "позиц" in title.lower()), None)
     if rows is None:
@@ -350,14 +294,12 @@ def _detect(sheets: list[Sheet]) -> str:
     if "динамика позиций" in titles:
         return "alpha"
     for _, rows in sheets:
-        if _find_header(rows, "isin", "исходящий остаток"):
-            return "tbank"
         if _find_header(rows, "инструмент", "кол-во"):
             return "alpha"
     return "generic"
 
 
-PARSERS = {"tbank": _parse_tbank, "alpha": _parse_alpha, "generic": _parse_generic}
+PARSERS = {"alpha": _parse_alpha, "generic": _parse_generic}
 
 
 # ------------------------------------------------------------------ точка входа
