@@ -207,11 +207,11 @@ def cmd_doctor(config: Config, args) -> int:
         if portfolio.source == "tinvest":
             from .sources import tinvest
 
-            bonds = tinvest.fetch_bonds(config.tinvest_token, account=config.tinvest_account)
+            bonds = tinvest.fetch_positions(config.tinvest_token, account=config.tinvest_account)
             checks.append((
                 "T-Invest API",
                 bonds is not None,
-                f"{len(bonds)} облигаций" if bonds is not None else "API не ответил",
+                f"{len(bonds)} позиций" if bonds is not None else "API не ответил",
             ))
             continue
         report = holdings.latest_report(portfolio)

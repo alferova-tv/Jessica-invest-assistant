@@ -43,7 +43,7 @@ class FakeApi:
             return FakeResponse(outcome, {})
         name = method.split("/")[1]
         data = self.fixtures[name]
-        if name in ("BondBy", "GetAssetBy"):
+        if name in ("BondBy", "ShareBy", "GetAssetBy"):
             data = data[json["id"]]
         return FakeResponse(200, data)
 
@@ -54,15 +54,16 @@ class FakeApi:
 class FetchBondsTest(unittest.TestCase):
     def fetch(self, api, **kwargs):
         with mock.patch.object(tinvest.requests, "post", api), mock.patch.object(tinvest, "PAUSE", 0):
-            return tinvest.fetch_bonds(TOKEN, **kwargs)
+            return tinvest.fetch_positions(TOKEN, **kwargs)
 
     def test_only_bonds_with_issuer_and_code(self):
         bonds = {b["isin"]: b for b in self.fetch(FakeApi())}
-        self.assertEqual(set(bonds), {"RU000A10EA08", "RU000A10D517", "RU000A10FG84", "RU000A10CFK2"})
+        self.assertEqual(set(bonds), {"RU000A10EA08", "RU000A10D517", "RU000A10FG84", "RU000A10CFK2", "RU0009029540"})
+        self.assertEqual(bonds["RU0009029540"]["kind"], "share")
         self.assertEqual(
             bonds["RU000A10EA08"],
             {"uid": "uid-softline", "isin": "RU000A10EA08", "name": "Софтлайн 002Р-02",
-             "issuer": 'ПАО "Софтлайн"', "code": "", "quantity": 20.0},
+             "issuer": 'ПАО "Софтлайн"', "code": "", "kind": "bond", "quantity": 20.0},
         )
         self.assertEqual(bonds["RU000A10D517"]["code"], "SU26253RMFS3")
         self.assertEqual(bonds["RU000A10FG84"]["issuer"], "Алиум")  # borrowName пуст → brand.company
@@ -91,14 +92,14 @@ class FetchBondsTest(unittest.TestCase):
 
     def test_known_bonds_are_not_described_again(self):
         known = {
-            "uid-softline": {"isin": "RU000A10EA08", "name": "Софтлайн 002Р-02", "issuer": 'ПАО "Софтлайн"', "code": ""},
-            "uid-ofz": {"isin": "RU000A10D517", "name": "ОФЗ 26253", "issuer": "Минфин", "code": "SU26253RMFS3"},
+            "uid-softline": {"isin": "RU000A10EA08", "name": "Софтлайн 002Р-02", "issuer": 'ПАО "Софтлайн"', "code": "", "kind": "bond"},
+            "uid-ofz": {"isin": "RU000A10D517", "name": "ОФЗ 26253", "issuer": "Минфин", "code": "SU26253RMFS3", "kind": "bond"},
         }
         api = FakeApi()
         bonds = self.fetch(api, known=known)
-        self.assertEqual(len(bonds), 4)
+        self.assertEqual(len(bonds), 5)
         self.assertEqual(api.count("BondBy"), 2)
-        self.assertEqual(api.count("GetAssetBy"), 2)
+        self.assertEqual(api.count("GetAssetBy"), 3)
 
     def test_incomplete_known_entry_is_described_again(self):
         api = FakeApi()
@@ -111,7 +112,7 @@ class FetchBondsTest(unittest.TestCase):
 
     def test_connection_error_is_retried(self):
         api = FakeApi(failures={"UsersService/GetAccounts": [requests.ConnectionError("vpn")]})
-        self.assertEqual(len(self.fetch(api)), 4)
+        self.assertEqual(len(self.fetch(api)), 5)
         self.assertEqual(api.count("GetAccounts"), 2)
 
     def test_client_error_is_not_retried(self):
@@ -122,7 +123,7 @@ class FetchBondsTest(unittest.TestCase):
     def test_no_token_means_no_requests(self):
         api = FakeApi()
         with mock.patch.object(tinvest.requests, "post", api):
-            self.assertIsNone(tinvest.fetch_bonds(""))
+            self.assertIsNone(tinvest.fetch_positions(""))
         self.assertEqual(api.calls, [])
 
     def test_certificate_is_pinned_for_every_request(self):

@@ -54,7 +54,7 @@ EVENT_HEADERS = {
 # «legal» — аресты, уголовные дела, банкротство, санкции. Для держателя долга
 # это сигнал не хуже дефолта: платить будет нечем раньше, чем это признают официально.
 NEWS_FOR_BOND = {"default", "restructuring", "rating", "offer", "report", "legal"}
-NEWS_FOR_SHARE = NEWS_FOR_BOND | {"dividend", "issue", "buyback", "split"}
+NEWS_FOR_SHARE = NEWS_FOR_BOND | {"dividend", "issue", "buyback", "split", "governance"}
 
 
 def relevant_news(kind: str, category: str) -> bool:
@@ -289,6 +289,7 @@ CATEGORY_TITLES = {
     "issue": "ДОПЭМИССИЯ",
     "buyback": "ОБРАТНЫЙ ВЫКУП",
     "split": "ДРОБЛЕНИЕ АКЦИЙ",
+    "governance": "УПРАВЛЕНИЕ",
 }
 
 CATEGORY_EMOJI = {
@@ -302,6 +303,7 @@ CATEGORY_EMOJI = {
     "issue": "📈",
     "buyback": "♻️",
     "split": "✂️",
+    "governance": "👔",
 }
 
 # Эти события присылаются по всему рынку, а не только по своим бумагам:

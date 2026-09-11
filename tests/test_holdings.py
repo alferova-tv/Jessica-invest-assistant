@@ -16,9 +16,9 @@ RAW = {
 }
 BONDS = [
     {"uid": "uid-softline", "isin": "RU000A10EA08", "name": "Софтлайн 002Р-02",
-     "issuer": 'ПАО "Софтлайн"', "code": "", "quantity": 20.0},
+     "issuer": 'ПАО "Софтлайн"', "code": "", "kind": "bond", "quantity": 20.0},
     {"uid": "uid-ofz", "isin": "RU000A10D517", "name": "ОФЗ 26253",
-     "issuer": "Министерство финансов Российской Федерации", "code": "SU26253RMFS3", "quantity": 7.0},
+     "issuer": "Министерство финансов Российской Федерации", "code": "SU26253RMFS3", "kind": "bond", "quantity": 7.0},
 ]
 PREVIOUS_BLOCK = {
     "title": "Т-Инвестиции", "source_file": None, "format": "tinvest-api",
@@ -41,7 +41,7 @@ class CollectTest(unittest.TestCase):
         self.tmp.cleanup()
 
     def collect(self, bonds):
-        with mock.patch.object(holdings.tinvest, "fetch_bonds", return_value=bonds) as fetch:
+        with mock.patch.object(holdings.tinvest, "fetch_positions", return_value=bonds) as fetch:
             return holdings.collect(self.config), fetch
 
     def write(self, name, data):
@@ -72,7 +72,7 @@ class CollectTest(unittest.TestCase):
         self.assertEqual(set(cache), {"uid-softline", "uid-ofz"})
         self.assertEqual(cache["uid-ofz"], {"isin": "RU000A10D517", "name": "ОФЗ 26253",
                                             "issuer": "Министерство финансов Российской Федерации",
-                                            "code": "SU26253RMFS3"})
+                                            "code": "SU26253RMFS3", "kind": "bond"})
 
     def test_cache_is_passed_as_known(self):
         cached = {"uid-softline": {"isin": "RU000A10EA08", "name": "С", "issuer": "И", "code": ""}}

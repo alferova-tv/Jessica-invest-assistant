@@ -49,7 +49,7 @@ def main() -> int:
 
     tinvest._post = recording
     try:
-        bonds = tinvest.fetch_bonds(config.tinvest_token, account=config.tinvest_account)
+        bonds = tinvest.fetch_positions(config.tinvest_token, account=config.tinvest_account)
     finally:
         tinvest._post = original
     _save(out / "calls.json", calls)
@@ -59,7 +59,7 @@ def main() -> int:
     _save(out / "bonds.json", bonds)
 
     current = json.loads(config.state_file("holdings.json").read_text(encoding="utf-8"))
-    old = {p["isin"]: p for p in current["portfolios"][key]["positions"] if p["kind"] == "bond"}
+    old = {p["isin"]: p for p in current["portfolios"][key]["positions"]}
     new = {b["isin"]: b for b in bonds}
     print(f"Записано в {out}\n")
     for isin in sorted(old.keys() | new.keys()):

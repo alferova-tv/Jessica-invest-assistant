@@ -1,4 +1,4 @@
-"""Облигации брокерского счёта Т-Инвестиций из T-Invest API.
+"""Облигации и акции брокерского счёта Т-Инвестиций из T-Invest API.
 
 Токен — только на чтение: Jessica смотрит состав портфеля и больше ничего.
 Отсюда уходят простые словари; что с ними делать, решает holdings.py.
@@ -36,7 +36,11 @@ BROKER_ACCOUNT = "ACCOUNT_TYPE_TINKOFF"  # ИИС и копилки в Jessica �
 OPEN = "ACCOUNT_STATUS_OPEN"
 
 # Сведения о бумаге, которые не меняются и хранятся в кэше у holdings.py.
-FIELDS = ("isin", "name", "issuer", "code")
+FIELDS = ("isin", "name", "issuer", "code", "kind")
+
+# Какие бумаги берём и где о них спрашивать. Валюта и фонды отбрасываются:
+# у них нет компании, о которой пишут новости, и нет купонов.
+KINDS = {"bond": "InstrumentsService/BondBy", "share": "InstrumentsService/ShareBy"}
 
 # У секьюритизации borrowName — банк, выдавший кредиты («АО "ТБанк"»), а сама
 # бумага выпущена спецфинобществом, и оно стоит в brand.company («СФО ТБ-4»).
@@ -92,11 +96,9 @@ def _account(headers: dict, account: str | None) -> str:
     return accounts[0]["id"]
 
 
-def _describe(uid: str, headers: dict) -> dict:
-    """ISIN, название выпуска, эмитент и биржевой код бумаги."""
-    bond = _post(
-        "InstrumentsService/BondBy", {"idType": "INSTRUMENT_ID_TYPE_UID", "id": uid}, headers
-    )["instrument"]
+def _describe(uid: str, kind: str, headers: dict) -> dict:
+    """ISIN, название, эмитент и биржевой код бумаги."""
+    bond = _post(KINDS[kind], {"idType": "INSTRUMENT_ID_TYPE_UID", "id": uid}, headers)["instrument"]
     asset = _post("InstrumentsService/GetAssetBy", {"id": bond["assetUid"]}, headers)["asset"]
     # Эмитент ищет новости: без него у выпуска вроде «АЛИУМ01Р1» маркеров нет вовсе.
     borrower = asset.get("security", {}).get("bond", {}).get("borrowName") or ""
@@ -109,6 +111,7 @@ def _describe(uid: str, headers: dict) -> dict:
         "issuer": issuer.strip(),
         # ОФЗ smart-lab ищет по биржевому коду (SU26253RMFS3), а не по ISIN.
         "code": "" if ticker == bond["isin"] else ticker,
+        "kind": kind,
     }
 
 
@@ -116,10 +119,10 @@ def _quantity(value: dict) -> float:
     return int(value.get("units", 0)) + int(value.get("nano", 0)) / 1e9
 
 
-def fetch_bonds(
+def fetch_positions(
     token: str, *, account: str | None = None, known: dict[str, dict] | None = None
 ) -> list[dict] | None:
-    """Облигации брокерского счёта или None, если API не дал полного ответа."""
+    """Облигации и акции брокерского счёта или None, если API не дал полного ответа."""
     if not token:
         log.warning("T-Invest: токен не задан (tinvest.token в config.yaml)")
         return None
@@ -131,7 +134,8 @@ def fetch_bonds(
         )
         bonds = []
         for position in portfolio.get("positions", []):
-            if position.get("instrumentType") != "bond":
+            kind = position.get("instrumentType")
+            if kind not in KINDS:
                 continue
             quantity = _quantity(position["quantity"])
             if quantity <= 0:
@@ -139,7 +143,7 @@ def fetch_bonds(
             uid = position["instrumentUid"]
             info = known.get(uid) or {}
             if not all(field in info for field in FIELDS):
-                info = _describe(uid, headers)
+                info = _describe(uid, kind, headers)
             bonds.append({"uid": uid, **{field: info[field] for field in FIELDS}, "quantity": quantity})
         return bonds
     except Unavailable as exc:

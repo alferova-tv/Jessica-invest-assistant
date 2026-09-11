@@ -413,7 +413,7 @@ def _collect_tinvest(config: Config, portfolio: Portfolio, previous: dict | None
     """Блок портфеля из T-Invest API. Если API не ответил — прошлый блок
     с пометкой stale: календарь строится на последнем известном составе."""
     cache = config.state_file(INSTRUMENTS)
-    bonds = tinvest.fetch_bonds(
+    bonds = tinvest.fetch_positions(
         config.tinvest_token, account=config.tinvest_account, known=_read_json(cache)
     )
     if bonds is None:
@@ -437,7 +437,7 @@ def _collect_tinvest(config: Config, portfolio: Portfolio, previous: dict | None
         encoding="utf-8",
     )
     positions = [
-        Position(bond["isin"], bond["quantity"], portfolio.key, bond["name"], BOND,
+        Position(bond["isin"], bond["quantity"], portfolio.key, bond["name"], bond["kind"],
                  bond["issuer"], bond["code"])
         for bond in bonds
     ]

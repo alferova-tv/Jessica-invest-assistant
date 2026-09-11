@@ -21,10 +21,14 @@
     "uid-alium": {"instrument": {"isin": "RU000A10FG84", "ticker": "RU000A10FG84", "name": "АЛИУМ01Р1", "assetUid": "asset-alium"}},
     "uid-sfo": {"instrument": {"isin": "RU000A10CFK2", "ticker": "RU000A10CFK2", "name": "Кредитный поток 2.0", "assetUid": "asset-sfo"}}
   },
+  "ShareBy": {
+    "uid-share": {"instrument": {"isin": "RU0009029540", "ticker": "SBER", "name": "Сбербанк", "assetUid": "asset-share"}}
+  },
   "GetAssetBy": {
     "asset-softline": {"asset": {"security": {"bond": {"borrowName": "ПАО \"Софтлайн\""}}, "brand": {"company": "СофтЛайн"}}},
     "asset-ofz": {"asset": {"security": {"bond": {"borrowName": "Правительство РФ"}}, "brand": {"company": "ОФЗ"}}},
     "asset-alium": {"asset": {"security": {"bond": {"borrowName": ""}}, "brand": {"company": "Алиум"}}},
-    "asset-sfo": {"asset": {"security": {"bond": {"borrowName": "АО \"ТБанк\""}}, "brand": {"company": "СФО ТБ-4"}}}
+    "asset-sfo": {"asset": {"security": {"bond": {"borrowName": "АО \"ТБанк\""}}, "brand": {"company": "СФО ТБ-4"}}},
+    "asset-share": {"asset": {"security": {"share": {}}, "brand": {"company": "Сбербанк"}}}
   }
 }
