@@ -136,10 +136,10 @@ exec ~/Projects/jessica/.venv/bin/python -m jessica "$@"
 ```
 ~/Documents/Tracking/Invest/
 ├── config.yaml            секреты, права 600
-├── tinkoff/reports/       брокерские выгрузки Т-Инвестиций (xlsx)
 ├── alpha/reports/         брокерские выгрузки Альфы (zip с xlsx)
 ├── state/
 │   ├── holdings.json      позиции: ISIN, количество, тип, эмитент
+│   ├── tinvest_instruments.json  кэш сведений о бумагах из T-Invest API
 │   ├── schedule.json      купоны, погашения, оферты, параметры выпусков
 │   ├── sent.json          что уже отправлено — дедупликация
 │   └── last_run.json      что уже сделано сегодня
@@ -153,10 +153,13 @@ telegram:
   token: "нужен от @BotFather"
   chat_id: 000000000
 
+tinvest:
+  token: "read-only токен T-Invest API"
+
 portfolios:
   tinkoff:
     title: "Т-Инвестиции"
-    reports_dir: "tinkoff/reports"
+    source: tinvest
   alpha:
     title: "Альфа"
     reports_dir: "alpha/reports"
@@ -171,6 +174,7 @@ reminders:
 schedule:
   morning_hour: 9      # час рассылки событий дня, МСК
   market_hour: 10      # час сводки по рынку
+  refresh_retry_hours: 3   # повтор сбора состава, если API брокера не ответил
   market_weekends: false
   monthly_calendar: true
 
@@ -198,13 +202,17 @@ jessica doctor
 
 ---
 
+**Токен T-Invest.** Выпустить в [настройках Т-Инвестиций](https://www.tbank.ru/invest/settings/)
+токен уровня **только чтение** и вписать в `config.yaml`. Протухает через 3 месяца без
+использования; отзывается там же: «Список токенов → Удалить доступ».
+
 ## Команды
 
 | Команда | Что делает |
 |---|---|
 | `jessica doctor` | проверка источников, связи, наличия выгрузок |
-| `jessica import` | разобрать брокерские выгрузки → `holdings.json` |
-| `jessica refresh` | пересобрать календарь → `schedule.json` (~40 с, 48 HTTP-запросов) |
+| `jessica import` | собрать состав (Т из T-Invest API, Альфа из выгрузки) → `holdings.json` |
+| `jessica refresh` | собрать состав и пересобрать календарь → `schedule.json` (~40 с) |
 | `jessica calendar --days 30` | ближайшие выплаты, в терминал |
 | `jessica check --dry-run --date ГГГГ-ММ-ДД` | что ушло бы в эту дату |
 | `jessica news --dry-run` | новости, без отправки |
@@ -225,7 +233,8 @@ jessica doctor
 ## Как это устроено
 
 ```
-брокерские выгрузки → holdings.py → state/holdings.json
+T-Invest API → sources/tinvest.py ┐
+выгрузки Альфы ───────────────────┴→ holdings.py → state/holdings.json
                                           ↓
    sources/smartlab.py → calendar.py → state/schedule.json
                                           ↓
@@ -259,10 +268,11 @@ jessica doctor
 | `smart-lab.ru` | купоны, погашения, оферты, номинал, амортизация | рабочий |
 | `smart-lab.ru/news/rss` | телеграфные заголовки корпоративных событий | рабочий |
 | `thebell.io/feed` | развёрнутые формулировки, больше про макро | заблокирован в РФ, держится на VPN, отваливается чаще прочих — это штатно |
-| `iss.moex.com` | значение IMOEX2 | годами давал таймаут, сейчас отвечает; полагаться нельзя |
+| `iss.moex.com` | значение IMOEX2 | режется по IP узла VPN; за ним Alor и smart-lab |
+| `api.alor.ru` | IMOEX2, если ISS молчит | рабочий, без ключа |
 | `cbr.ru` | официальный курс доллара | рабочий, быстрый |
 | `e-disclosure.ru` | официальное раскрытие | **за капчей**, программой не берётся |
-| `invest-public-api.tinkoff.ru` | — | таймаут, не используется |
+| `invest-public-api.tbank.ru` | состав портфеля Т | рабочий; сертификат Минцифры; режется по IP узла VPN, как ISS |
 
 Капчу Jessica не обходит: факт события берётся из ленты, а в сообщение кладётся
 ссылка на поиск по компании — открывает её человек.
@@ -284,7 +294,7 @@ jessica doctor
   амортизации. Такие выпуски помечаются словами.
 - **Ставки флоатеров** до объявления показываются как «ставка не объявлена».
 - **ОФЗ ищутся по биржевому коду** (`SU26253RMFS3`), а не по ISIN.
-- **Тестов нет**, `tests/` пуста.
+- Тесты — `unittest`, без сети: `.venv/bin/python -m unittest discover -s tests`.
 - **`pdfplumber` не установлен** — ветка разбора PDF в `holdings.py` сработает
   только после `pip install pdfplumber`.
 - **`browser.py` (Playwright) написан и работает, но в рабочем цикле не задействован**:
