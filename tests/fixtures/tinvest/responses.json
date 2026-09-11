@@ -23,8 +23,8 @@
   },
   "GetAssetBy": {
     "asset-softline": {"asset": {"security": {"bond": {"borrowName": "ПАО \"Софтлайн\""}}, "brand": {"company": "СофтЛайн"}}},
-    "asset-ofz": {"asset": {"security": {"bond": {"borrowName": "Министерство финансов Российской Федерации"}}, "brand": {"company": "Минфин России"}}},
+    "asset-ofz": {"asset": {"security": {"bond": {"borrowName": "Правительство РФ"}}, "brand": {"company": "ОФЗ"}}},
     "asset-alium": {"asset": {"security": {"bond": {"borrowName": ""}}, "brand": {"company": "Алиум"}}},
-    "asset-sfo": {"asset": {"security": {"bond": {"borrowName": "ООО \"СФО ТБ-4\""}}, "brand": {"company": "Т-Банк"}}}
+    "asset-sfo": {"asset": {"security": {"bond": {"borrowName": "АО \"ТБанк\""}}, "brand": {"company": "СФО ТБ-4"}}}
   }
 }

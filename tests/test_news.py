@@ -23,6 +23,10 @@ class CompanyMarkersTest(unittest.TestCase):
         markers = company_markers("ОФЗ 26253", "Министерство финансов Российской Федерации")
         self.assertEqual(markers, {"stems": set(), "abbr": set()})
 
+    def test_government_is_recognised_by_api_issuer_name(self):
+        # Так эмитента ОФЗ называет T-Invest API; слова «ОФЗ» в названии может и не быть.
+        self.assertEqual(company_markers("Выпуск 26253", "Правительство РФ"), {"stems": set(), "abbr": set()})
+
 
 class SilentTest(unittest.TestCase):
     def test_company_without_markers_is_silent(self):

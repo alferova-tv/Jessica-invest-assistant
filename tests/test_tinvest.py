@@ -68,6 +68,11 @@ class FetchBondsTest(unittest.TestCase):
         self.assertEqual(bonds["RU000A10FG84"]["issuer"], "Алиум")  # borrowName пуст → brand.company
         self.assertEqual(bonds["RU000A10CFK2"]["quantity"], 12.5)  # units + nano
 
+    def test_securitization_issuer_is_the_spv_not_the_bank(self):
+        # У СФО в borrowName банк-оригинатор; его отчётность к бумаге не относится.
+        bonds = {b["isin"]: b for b in self.fetch(FakeApi())}
+        self.assertEqual(bonds["RU000A10CFK2"]["issuer"], "СФО ТБ-4")
+
     def test_broker_account_is_found_and_iis_ignored(self):
         api = FakeApi()
         self.fetch(api)

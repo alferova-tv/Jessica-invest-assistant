@@ -21,6 +21,7 @@ VPN. API режется по IP выходного узла так же, как 
 from __future__ import annotations
 
 import logging
+import re
 import time
 from pathlib import Path
 
@@ -36,6 +37,11 @@ OPEN = "ACCOUNT_STATUS_OPEN"
 
 # Сведения о бумаге, которые не меняются и хранятся в кэше у holdings.py.
 FIELDS = ("isin", "name", "issuer", "code")
+
+# У секьюритизации borrowName — банк, выдавший кредиты («АО "ТБанк"»), а сама
+# бумага выпущена спецфинобществом, и оно стоит в brand.company («СФО ТБ-4»).
+# Эмитентом считаем СФО: ежемесячная отчётность банка к бумаге не относится.
+SPV = re.compile(r"\bСФО\b")
 
 TIMEOUT = 10
 ATTEMPTS = 4
@@ -93,11 +99,9 @@ def _describe(uid: str, headers: dict) -> dict:
     )["instrument"]
     asset = _post("InstrumentsService/GetAssetBy", {"id": bond["assetUid"]}, headers)["asset"]
     # Эмитент ищет новости: без него у выпуска вроде «АЛИУМ01Р1» маркеров нет вовсе.
-    issuer = (
-        asset.get("security", {}).get("bond", {}).get("borrowName")
-        or asset.get("brand", {}).get("company")
-        or ""
-    )
+    borrower = asset.get("security", {}).get("bond", {}).get("borrowName") or ""
+    brand = asset.get("brand", {}).get("company") or ""
+    issuer = brand if SPV.search(brand) else borrower or brand
     ticker = bond.get("ticker", "")
     return {
         "isin": bond["isin"],
