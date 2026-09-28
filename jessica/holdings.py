@@ -6,6 +6,7 @@
   не ответил, остаётся прошлый состав с пометкой stale.
 * `source: reports` (по умолчанию) — брокерская выгрузка: Jessica берёт самый
   свежий файл в папке портфеля и вытаскивает из него ISIN, количество и тип.
+  Если в выгрузке нет ни одной позиции, остаётся прошлый состав с пометкой stale.
 
 Выгрузка Альфы устроена так: количество и название в одной строке, а ISIN
 отдельной строкой под ней; тип бумаги задан разделом таблицы («Акции»,
@@ -408,6 +409,15 @@ def collect(config: Config) -> dict:
         if portfolio.source != "reports":
             raise SystemExit(f"Неизвестный источник портфеля «{portfolio.title}»: {portfolio.source}")
         positions, skipped, path, broker = parse_portfolio(portfolio)
+        known = previous.get(portfolio.key)
+        if path and not positions and known and known.get("positions"):
+            # Брокер выдал пустой отчёт (у Альфы — период по сегодняшний день).
+            # Пустой состав стёр бы бумаги из календаря, поэтому держим прошлый.
+            block = dict(known)
+            block["stale"] = True
+            block["stale_reason"] = f"выгрузка {path.name} пустая: {'; '.join(skipped) or 'позиций нет'}"
+            holdings["portfolios"][portfolio.key] = block
+            continue
         holdings["portfolios"][portfolio.key] = {
             "title": portfolio.title,
             "source_file": path.name if path else None,

@@ -75,7 +75,8 @@ def _warn(data: dict) -> None:
     for block in data["portfolios"].values():
         if block.get("stale"):
             since = (block.get("synced") or "").replace("T", " ") or block.get("source_file") or "неизвестно когда"
-            print(f"⚠ {block['title']}: API не ответил, состав от {since}")
+            reason = block.get("stale_reason", "API не ответил")
+            print(f"⚠ {block['title']}: {reason}, состав от {since}")
         for position in block["positions"]:
             if news.silent(position["name"], position.get("issuer", "")):
                 print(f"⚠ без маркеров: {position['name']} ({position['isin']}) — новости по бумаге не найдутся")
