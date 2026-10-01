@@ -13,3 +13,7 @@ digests/
 *.zip
 
 .DS_Store
+
+# Инструкции для Claude Code
+CLAUDE.md
+.claude/

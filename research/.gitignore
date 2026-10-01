@@ -1,0 +1,23 @@
+# Общие правила (.venv, __pycache__, .DS_Store) — в .gitignore корня Jessica.
+
+# Данные исследования живут вне репозитория, в ~/Documents/Tracking/Invest/research.
+# Подстраховка на случай, если выгрузку положат сюда. CSV не исключаются целиком,
+# так как manual/*.csv — результат ручной работы и должен быть в git.
+raw/
+out/
+*.parquet
+*.feather
+*.pkl
+*.html
+
+# Профиль браузера для e-disclosure (cookies сессии)
+profile/
+
+# Кэш ноутбуков этапа 4
+.ipynb_checkpoints/
+
+# Мои черновики 
+drafts.txt
+
+# Инструкции для Claude Code
+CLAUDE.md
