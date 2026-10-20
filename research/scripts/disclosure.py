@@ -12,6 +12,9 @@ e-disclosure закрыт антиботом, иногда с капчей. Ка
     .venv/bin/python research/scripts/disclosure.py parse   # таблица disclosure_defaults.csv
     .venv/bin/python research/scripts/disclosure.py extra-texts  # тексты эмитентов вне «Д»
     .venv/bin/python research/scripts/disclosure.py extra        # эпизоды техдефолтов вне «Д»
+    .venv/bin/python research/scripts/disclosure.py cures-texts  # сообщения о выплате после неплатежей
+    .venv/bin/python research/scripts/disclosure.py restruct-list  # решения ОСВО, новации, списания субордов
+    .venv/bin/python research/scripts/disclosure.py restruct-texts # их тексты
 """
 
 from __future__ import annotations
@@ -102,9 +105,9 @@ def _open(page, url: str, ready: str) -> None:
     raise SystemExit(f"не дождалась страницы {url}: капча не пройдена за 30 минут")
 
 
-def _search(page, start: dt.date, finish: dt.date) -> dict:
+def _search(page, start: dt.date, finish: dt.date, types: str = str(EVENT_TYPE)) -> dict:
     form = {
-        "eventTypeTerm": "", "radView": "0", "eventTypeCheckboxGroup": str(EVENT_TYPE),
+        "eventTypeTerm": "", "radView": "0", "eventTypeCheckboxGroup": types,
         "dateStart": start.strftime("%d.%m.%Y"), "dateFinish": finish.strftime("%d.%m.%Y"),
         "textfieldEvent": "", "radReg": "FederalDistricts", "districtsCheckboxGroup": "-1",
         "regionsCheckboxGroup": "-1", "branchesCheckboxGroup": "-1", "textfieldCompany": "",
@@ -124,19 +127,19 @@ def _pause() -> None:
     time.sleep(random.uniform(4, 8))
 
 
-def cmd_list() -> None:
-    """Все сообщения типа 178 с 2014 года, по году на запрос."""
+def cmd_list(types: str = str(EVENT_TYPE), prefix: str = "sevents") -> None:
+    """Все сообщения типа 178 (или `types`) с 2014 года, по году на запрос."""
     today = dt.date.today()
     with session() as page:
         for year in range(FIRST_YEAR, today.year + 1):
-            path = RAW / f"sevents_{year}.json"
+            path = RAW / f"{prefix}_{year}.json"
             if path.exists() and year < today.year:
                 continue
             periods = [(dt.date(year, 1, 1), min(dt.date(year, 12, 31), today))]
             found = []
             while periods:
                 start, finish = periods.pop()
-                reply = _search(page, start, finish)
+                reply = _search(page, start, finish, types)
                 if reply["allFoundEvents"] > MAX_SHOWN:
                     middle = start + (finish - start) / 2
                     periods += [(start, middle), (middle + dt.timedelta(days=1), finish)]
@@ -145,6 +148,36 @@ def cmd_list() -> None:
                 _pause()
             path.write_text(json.dumps(found, ensure_ascii=False))
             print(f"  {year}: {len(found)} сообщений", flush=True)
+
+
+# Реструктуризация без неплатежа: решения общего собрания владельцев
+# облигаций (253), новация или отступное (311), списание субординированных
+# облигаций банка и отказ от их купона (338, 339). Номера — из справочника
+# /api/data/sevent-types (raw/edisclosure/sevent_types.json).
+# Несколько типов через запятую сайт не принимает (пустой ответ),
+# поэтому по запросу на тип.
+RESTRUCT_TYPES = (253, 311, 338, 339)
+
+
+def cmd_restruct_list() -> None:
+    """Сообщения о решениях ОСВО, новациях и списаниях с 2014 года."""
+    for event_type in RESTRUCT_TYPES:
+        print(f"тип {event_type}", flush=True)
+        cmd_list(str(event_type), f"restruct{event_type}")
+
+
+def _restruct_messages() -> list[dict]:
+    found = []
+    for event_type in RESTRUCT_TYPES:
+        for path in sorted(RAW.glob(f"restruct{event_type}_*.json")):
+            found += [dict(m, type=event_type) for m in json.loads(path.read_text())]
+    return found
+
+
+def cmd_restruct_texts(limit: str = "") -> None:
+    """Тексты всех сообщений `restruct-list`: эмитента ищем потом по ИНН в тексте,
+    так как в выдаче название сокращено («ПАО "ДВМП"», «ООО "СЖИ"»)."""
+    _download([m["pseudoGUID"] for m in _restruct_messages()], limit)
 
 
 # --- сопоставление с эмитентами исследования ---------------------------------
@@ -345,8 +378,9 @@ def _own(row: dict, issuer: dict) -> bool:
     return issuer["inn"] in row["inn"].split() or bool(set(row["isins"].split()) & set(issuer["secids"].split()))
 
 
-# Льготный срок — 10 рабочих дней, то есть 14–16 календарных. Окно 25 дней
-# его покрывает и не дотягивается до предыдущего ежемесячного купона
+# Льготный срок — 10 рабочих дней, то есть 14–16 календарных, а на новогодних
+# каникулах до 23 (от 30 декабря — около 22 января; прикидка, не расчёт по
+# производственному календарю). Окно 25 дней его покрывает и не дотягивается до предыдущего ежемесячного купона
 # (у Нэппи Клаба купоны 13.03 и 13.04, дефолт по второму).
 GRACE_WINDOW = 25
 
@@ -675,6 +709,33 @@ def cmd_extra() -> None:
             "isins": " ".join(dict.fromkeys(i for r in episode for i in r["isins"].split())),
             "url": first["url"],
         })
+    # Неплатежи, которые эмитент не раскрыл на e-disclosure, известны только
+    # по ручной проверке: строка `manual_techdefault.csv` с датой `tech_first`
+    # (Фабрикс, 09.08.2026 — есть только в списке smart-lab).
+    known = {(t["inn"], t["tech_first"]) for t in table}
+    by_inn = {item["inn"]: (eid, item) for eid, item in emitents.items() if item["inn"]}
+    for inn, row in manual.items():
+        if not row.get("tech_first") or (inn, row["tech_first"]) in known or inn not in by_inn:
+            continue
+        eid, item = by_inn[inn]
+        table.append({
+            "emitent_id": eid,
+            "emitent_title": item["title"],
+            "inn": inn,
+            "role": "только техдефолт" if row["decision"] == "кредитная" else "исключён",
+            "tech_first": row["tech_first"],
+            "day_zero": "",
+            "default_date": "",
+            "date_from": "ручная проверка",
+            "last": row["tech_first"],
+            "messages": 0,
+            "default_declared": False,
+            "cause_class": row["decision"],
+            "cause": row["note"][:200],
+            "sanctions": False,
+            "isins": " ".join(sorted(item["isins"])),
+            "url": "",
+        })
     # Повторные эпизоды того же эмитента (ТелеХаус три года подряд не
     # платит один и тот же купон) — продолжение одной беды. Помечается
     # первый кредитный эпизод эмитента; повторные остаются для справки.
@@ -687,10 +748,15 @@ def cmd_extra() -> None:
         writer = csv.DictWriter(fh, fieldnames=list(table[0]))
         writer.writeheader()
         writer.writerows(table)
-    technical = [r for r in rows if r["bond"] and r["status"] != "дефолт"
-                 and _cause_class(r["cause"], False) == "техническая"]
+    # Ручное решение «техническая» перекрывает статус «дефолт» в сообщении
+    # (Петербургснаб, 2026: «дефолт» из-за ошибки в платёжке, оплачено назавтра).
+    manual_technical = {inn for inn, row in manual.items() if row["decision"] == "техническая"}
+    technical = [r for r in rows if r["bond"] and (
+        r["inn"] in manual_technical
+        or (r["status"] != "дефолт" and _cause_class(r["cause"], False) == "техническая"))]
     print(f"сообщений эмитентов вне «Д»: {len(rows)} (про облигации {sum(r['bond'] for r in rows)}, "
-          f"из них технических неплатежей {len(technical)} у {len({r['emitent_id'] for r in technical})} эмитентов — "
+          f"из них технических неплатежей {len({(r['emitent_id'], r['due_date']) for r in technical})} "
+          f"({len(technical)} сообщений) у {len({r['emitent_id'] for r in technical})} эмитентов — "
           f"в эпизоды не входят)")
     print(f"эпизодов: {len(table)}, эмитентов: {len({t['emitent_id'] for t in table})}")
     for role in ("дефолт", "только техдефолт", "исключён"):
@@ -699,9 +765,123 @@ def cmd_extra() -> None:
               f"первых у эмитента {sum(t['first_for_issuer'] for t in mine)}")
 
 
+# --- даты выплат по исполненным неплатежам (задача B) -------------------------
+
+# «Выплаченные доходы или иные выплаты» — сообщение, в котором эмитент
+# пишет дату фактической выплаты. Номер сверяется со справочником
+# /api/data/sevent-types при первом запуске (`cures-texts` печатает название).
+CURE_TYPE = 167
+# Окно поиска после плановой даты: льготный срок до 10 рабочих дней плюс
+# выплаты после него (КИВИ Финанс заплатил через 50 дней после оферты).
+CURE_WINDOW = 60
+
+
+def _company_ids() -> dict[str, tuple[int, str]]:
+    """pseudoGUID сообщения → (companyID, companyName) из выдачи поиска."""
+    return {m["pseudoGUID"]: (m["companyID"], m["companyName"]) for m in _messages()}
+
+
+def _cure_candidates() -> list[dict]:
+    """Неплатежи, по которым ищется выплата: ранние у эмитентов «Д» и все не-дефолты вне «Д».
+
+    Неплатёж в день ноль эмитента «Д» сюда не входит, так как его исход —
+    дефолт. Один неплатёж = эмитент и плановая дата, сколько бы выпусков
+    и сообщений на неё ни приходилось.
+    """
+    ids = _company_ids()
+    with (OUT / "day_zero.csv").open() as fh:
+        zero = {r["emitent_id"]: r["day_zero"] for r in csv.DictReader(fh)}
+    excluded = {inn for inn, row in _manual_extra().items() if row.get("decision") == "исключить"}
+    found: dict[tuple, dict] = {}
+
+    def add(row: dict, group: str) -> None:
+        guid = row["url"].rsplit("EventId=", 1)[-1]
+        if guid not in ids or row["due_date"] < f"{FIRST_YEAR}-01-01":
+            return
+        company_id, company = ids[guid]
+        key = (company_id, row["due_date"])
+        item = found.setdefault(key, {
+            "emitent_id": row["emitent_id"], "emitent_title": row["emitent_title"],
+            "company_id": company_id, "company": company, "due_date": row["due_date"],
+            "group": group, "isins": set(), "causes": []})
+        item["isins"].update(row["isins"].split())
+        if row.get("cause"):
+            item["causes"].append(row["cause"])
+
+    with (OUT / "disclosure_defaults.csv").open() as fh:
+        for row in csv.DictReader(fh):
+            if zero.get(row["emitent_id"]) and row["due_date"] < zero[row["emitent_id"]]:
+                add(row, "ранний у «Д»")
+    with (OUT / "techdefault_messages.csv").open() as fh:
+        for row in csv.DictReader(fh):
+            if row["bond"] == "True" and row["status"] != "дефолт" and row["inn"] not in excluded:
+                add(row, "вне «Д»")
+    return sorted(found.values(), key=lambda r: (r["due_date"], r["company_id"]))
+
+
+def _search_company(page, company: str, start: dt.date, finish: dt.date) -> dict:
+    form = {
+        "eventTypeTerm": "", "radView": "0", "eventTypeCheckboxGroup": str(CURE_TYPE),
+        "dateStart": start.strftime("%d.%m.%Y"), "dateFinish": finish.strftime("%d.%m.%Y"),
+        "textfieldEvent": "", "radReg": "FederalDistricts", "districtsCheckboxGroup": "-1",
+        "regionsCheckboxGroup": "-1", "branchesCheckboxGroup": "-1", "textfieldCompany": company,
+        # Фильтр по компании сайт берёт из `query`, а `textfieldCompany` —
+        # только поле ввода: с одним им выдача идёт по всем эмитентам.
+        "lastPageSize": "2147483647", "lastPageNumber": "1", "query": company, "queryEvent": "",
+    }
+    body = urllib.parse.urlencode(form)
+    text = page.evaluate(
+        """body => fetch('/api/search/sevents', {method: 'POST', body,
+             headers: {'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                       'X-Requested-With': 'XMLHttpRequest'}}).then(r => r.text())""",
+        body,
+    )
+    return json.loads(text)
+
+
+def cmd_cures_texts(limit: str = "") -> None:
+    """Поиск сообщений о выплате после каждого неплатежа и скачивание их текстов."""
+    candidates = _cure_candidates()
+    folder = RAW / "cures"
+    folder.mkdir(exist_ok=True)
+    todo = [c for c in candidates
+            if not (folder / f"{c['company_id']}_{c['due_date']}.json").exists()]
+    print(f"неплатежей: {len(candidates)} ({sum(c['group'] == 'ранний у «Д»' for c in candidates)} ранних у «Д»), "
+          f"искать: {len(todo)}", flush=True)
+    if limit:
+        todo = todo[: int(limit)]
+    if todo:
+        with session() as page:
+            types = page.evaluate("() => fetch('/api/data/sevent-types').then(r => r.text())")
+            (RAW / "sevent_types.json").write_text(types)
+            name = re.search(rf'"id"\s*:\s*{CURE_TYPE}\b[^}}]*?"name"\s*:\s*"([^"]+)"', types)
+            print(f"  тип {CURE_TYPE}: {name.group(1) if name else 'не найден в справочнике'}", flush=True)
+            for number, c in enumerate(todo, 1):
+                start = dt.date.fromisoformat(c["due_date"])
+                # Окно не заходит в будущее: на такую дату сайт отвечает 400.
+                finish = min(start + dt.timedelta(days=CURE_WINDOW), dt.date.today())
+                reply = _search_company(page, c["company"], start, finish)
+                if "foundEventsList" not in reply:
+                    raise SystemExit(f"поиск {c['company']} {c['due_date']} не удался: {str(reply)[:200]}")
+                (folder / f"{c['company_id']}_{c['due_date']}.json").write_text(
+                    json.dumps(reply, ensure_ascii=False))
+                if number % 10 == 0 or number == len(todo):
+                    print(f"  поиск: {number}/{len(todo)}", flush=True)
+                _pause()
+    guids = []
+    for c in candidates:
+        path = folder / f"{c['company_id']}_{c['due_date']}.json"
+        if path.exists():
+            guids += [m["pseudoGUID"] for m in json.loads(path.read_text())["foundEventsList"]
+                      if m["companyID"] == c["company_id"]]
+    _download(guids, limit)
+
+
 if __name__ == "__main__":
     commands = {"list": cmd_list, "texts": cmd_texts, "parse": cmd_parse,
-                "extra-texts": cmd_extra_texts, "extra": cmd_extra}
+                "extra-texts": cmd_extra_texts, "extra": cmd_extra,
+                "cures-texts": cmd_cures_texts, "restruct-list": cmd_restruct_list,
+                "restruct-texts": cmd_restruct_texts}
     if len(sys.argv) not in (2, 3) or sys.argv[1] not in commands:
         raise SystemExit(__doc__)
     commands[sys.argv[1]](*sys.argv[2:])
