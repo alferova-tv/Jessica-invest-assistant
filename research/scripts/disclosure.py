@@ -10,9 +10,11 @@ e-disclosure закрыт антиботом, иногда с капчей. Ка
     .venv/bin/python research/scripts/disclosure.py list    # список сообщений по годам
     .venv/bin/python research/scripts/disclosure.py texts   # тексты сообщений наших эмитентов
     .venv/bin/python research/scripts/disclosure.py parse   # таблица disclosure_defaults.csv
-    .venv/bin/python research/scripts/disclosure.py extra-texts  # тексты эмитентов вне «Д»
+    .venv/bin/python research/scripts/disclosure.py cid-texts    # по тексту на компанию без ИНН
+    .venv/bin/python research/scripts/disclosure.py extra-texts  # тексты эмитентов вне «Д» и ранние у «Д»
     .venv/bin/python research/scripts/disclosure.py extra        # эпизоды техдефолтов вне «Д»
     .venv/bin/python research/scripts/disclosure.py cures-texts  # сообщения о выплате после неплатежей
+    .venv/bin/python research/scripts/disclosure.py cures        # даты выплат и k → cures.csv
     .venv/bin/python research/scripts/disclosure.py restruct-list  # решения ОСВО, новации, списания субордов
     .venv/bin/python research/scripts/disclosure.py restruct-texts # их тексты
 """
@@ -344,8 +346,12 @@ def _parse(text: str) -> dict:
     # (технический дефолт, дефолт): дефолт». Скобки шаблона убираются,
     # иначе любое сообщение выглядело бы техдефолтом.
     # Старая форма: «в том числе по его вине (дефолт):» — тоже шаблон.
+    # Статус ищется только в теле сообщения: на страницах, скачанных
+    # с октября 2026, сбоку лента новостей Интерфакса («первичный дефолт
+    # в 2027 году…»), и по ней любое сообщение выглядело бы дефолтом.
+    signed = body.find("3. Подпись")
     low = re.sub(r"\(технический дефолт,? (?:или )?дефолт\)|по его вине \(дефолт\)|\(частичн\w+ неисполнени\w+\)",
-                 " ", text.lower())
+                 " ", (body[:signed] if signed > 0 else body).lower())
     if re.search(r"(?<!технический )(?<!технического )\bдефолт\b|на срок более 10|более десяти рабочих|по истечении 10", low):
         status = "дефолт"
     elif re.search(r"техническ\w* дефолт", low):
@@ -514,13 +520,15 @@ SANCTIONS = re.compile(
 TECHNICAL = re.compile(
     r"техническ\w* (?:ошибк|причин|сложност|механизм|особенност|сбо|проблем)|неявк\w* владельц|реквизит"
     r"|информаци\w* о (?:лицах|владельц)|списк\w* владельцев|обработк\w* банком|корреспондент"
-    r"|операционн\w* риск|поступил\w* на счет депозитария на след",
+    r"|операционн\w* риск|поступил\w* на счет депозитария на след"
+    r"|техническ\w* задержк|акцепт\w* специализированн\w* депозитари",
     re.I,
 )
 CREDIT = re.compile(
     r"(?:отсутств|недостат|нехватк|недостаточн)\w*[^.]{0,60}денежн|денежн\w* средств\w*[^.]{0,40}(?:отсутств|недостат)"
     r"|задержк\w* поступлени|заблокирован|блокировк\w* (?:расч|счет|счёт)|арест|обеспечительн\w* мер"
-    r"|финансов\w* затруднени",
+    r"|финансов\w* затруднени|(?:несвоевременн|недо)\w*\s?поступлени|приостановк\w* операций"
+    r"|реструктуризаци|новаци",
     re.I,
 )
 
@@ -566,21 +574,71 @@ def _bond_emitents() -> dict[str, dict]:
     return found
 
 
+def _cid_inns() -> dict[int, str]:
+    """companyID → ИНН эмитента по скачанным текстам.
+
+    В выдаче поиска ИНН нет, только краткое имя, а по имени сходятся не
+    все: Стройжилинвест записан как «ООО "СЖИ"». Номер компании в выдаче
+    есть всегда, а ИНН — в первом пункте каждого текста.
+    """
+    ids = _company_ids()
+    found: dict[int, dict[str, int]] = {}
+    for path in (RAW / "events").glob("*.html"):
+        if path.stem not in ids:
+            continue
+        inns = re.findall(r"ИНН[^\n\d]{0,40}(\d{10})", _text(path))
+        if inns:
+            counts = found.setdefault(ids[path.stem][0], {})
+            counts[inns[0]] = counts.get(inns[0], 0) + 1
+    return {cid: max(counts, key=counts.get) for cid, counts in found.items()}
+
+
+def cmd_cid_texts(limit: str = "") -> None:
+    """По одному тексту на компанию, у которой ИНН ещё неизвестен (последнее сообщение)."""
+    known = _cid_inns()
+    latest: dict[int, dict] = {}
+    for msg in _messages():
+        if msg["eventDate"][:10] < f"{FIRST_YEAR}-01-01" or msg["companyID"] in known:
+            continue
+        if msg["companyID"] not in latest or msg["eventDate"] > latest[msg["companyID"]]["eventDate"]:
+            latest[msg["companyID"]] = msg
+    print(f"компаний без ИНН: {len(latest)}", flush=True)
+    _download([msg["pseudoGUID"] for msg in latest.values()], limit)
+
+
 def _extra_candidates() -> tuple[list[tuple[dict, list[str]]], dict[str, dict]]:
-    """Сообщения с 2014 года от эмитентов облигаций, которых нет среди событий «Д»."""
+    """Сообщения с 2014 года от эмитентов облигаций, которых `parse` не разбирает.
+
+    Это эмитенты вне «Д» и ранние сообщения эмитентов «Д»: раньше окна
+    `WINDOW_BEFORE` до перевода (Вейл Финанс не заплатил купон 14.03.2018,
+    а в «Д» попал 21.09.2021). Компания узнаётся по ИНН из `_cid_inns`,
+    а без него — по имени.
+    """
     with (OUT / "events_issuers.csv").open() as fh:
-        ours = {row["emitent_id"] for row in csv.DictReader(fh)}
+        ours = {row["emitent_id"]: (dt.date.fromisoformat(row["transfer_date"])
+                                    - dt.timedelta(days=WINDOW_BEFORE)).isoformat()
+                for row in csv.DictReader(fh)}
     emitents = _bond_emitents()
+    cid_inn = _cid_inns()
+    by_inn: dict[str, list[str]] = {}
+    for eid, item in emitents.items():
+        if item["inn"]:
+            by_inn.setdefault(item["inn"], []).append(eid)
     by_name: dict[str, list[str]] = {}
     found = []
     for msg in _messages():
-        if msg["eventDate"][:10] < f"{FIRST_YEAR}-01-01":
+        day = msg["eventDate"][:10]
+        if day < f"{FIRST_YEAR}-01-01":
             continue
         name = msg["companyName"]
-        if name not in by_name:
-            by_name[name] = [eid for eid, item in emitents.items() if _same(item["title"], name)]
-        ids = [eid for eid in by_name[name] if eid not in ours]
-        if ids and len(ids) == len(by_name[name]):
+        if msg["companyID"] in cid_inn:
+            matched = by_inn.get(cid_inn[msg["companyID"]], [])
+        else:
+            if name not in by_name:
+                by_name[name] = [eid for eid, item in emitents.items() if _same(item["title"], name)]
+            matched = by_name[name]
+        ids = [eid for eid in matched if eid not in ours or day < ours[eid]]
+        if ids and len(ids) == len(matched):
             found.append((msg, ids))
     return found, emitents
 
@@ -629,6 +687,8 @@ def cmd_extra() -> None:
     """
     manual = _manual_extra()
     candidates, emitents = _extra_candidates()
+    with (OUT / "events_issuers.csv").open() as fh:
+        ours = {row["emitent_id"] for row in csv.DictReader(fh)}
     rows = []
     for msg, ids in candidates:
         path = RAW / "events" / f"{msg['pseudoGUID']}.html"
@@ -688,7 +748,9 @@ def cmd_extra() -> None:
             cause_class = "исключён вручную"
         elif decision:
             cause_class = decision
-        day_zero = _episode_day_zero(episode) if declared else ""
+        # Дефолт эмитента «Д» уже записан по переводу, поэтому его ранний
+        # эпизод — только техдефолт, даже с отметкой «дефолт» (решение владелицы 2026-10-21).
+        day_zero = _episode_day_zero(episode) if declared and first["emitent_id"] not in ours else ""
         role = ("исключён" if cause_class not in ("кредитная",)
                 else "дефолт" if day_zero else "только техдефолт")
         table.append({
@@ -815,7 +877,7 @@ def _cure_candidates() -> list[dict]:
     with (OUT / "techdefault_messages.csv").open() as fh:
         for row in csv.DictReader(fh):
             if row["bond"] == "True" and row["status"] != "дефолт" and row["inn"] not in excluded:
-                add(row, "вне «Д»")
+                add(row, "ранний у «Д»" if row["emitent_id"] in zero else "вне «Д»")
     return sorted(found.values(), key=lambda r: (r["due_date"], r["company_id"]))
 
 
@@ -877,10 +939,102 @@ def cmd_cures_texts(limit: str = "") -> None:
     _download(guids, limit)
 
 
+def _all_dates(text: str) -> list[str]:
+    """Все даты текста в ISO: и «23.01.2017», и «23 января 2017»."""
+    out = []
+    for groups in re.findall(ANY_DATE, text):
+        if groups[0]:
+            out.append(f"{groups[2]}-{groups[1]}-{int(groups[0]):02d}")
+        else:
+            month = next(n for stem, n in MONTHS.items() if groups[4].lower().startswith(stem))
+            out.append(f"{groups[5]}-{month:02d}-{int(groups[3]):02d}")
+    return out
+
+
+def _cure_message(text: str, isins: set[str]) -> dict:
+    """Что сообщение о выплате говорит о неплатеже: плановая дата, полнота, факт."""
+    flat = re.sub(r"\s+", " ", text)
+    # Плановая дата — в пункте «дата, в которую обязательство должно быть
+    # исполнено»; до следующего пункта вида « 2.5. ».
+    planned = re.search(r"(?:должн[аоы]? быть исполнен|[Пп]лановая дата).{0,700}?(?=\s\d\.\d{1,2}\.\s)", flat)
+    volume = re.search(r"Объем \(в процентах\), в котором исполнено обязательство[^:]*:\s*([^%]{0,40}?)"
+                       r"(\d{1,3}(?:[.,]\d+)?)\s*%", flat)
+    i = flat.lower().find("причин")
+    clause = flat[i:i + 500] if i >= 0 else ""
+    after = clause[clause.find(":") + 1:][:150] if ":" in clause else clause
+    full_words = (bool(re.search(r"(исполнен\w*|выплачен\w*)( эмитентом)? в полном объ[её]ме", clause, re.I))
+                  and not re.search(r"выплачен\w* (не|в неполном)|не исполнен", after, re.I))
+    j = flat.find("актическ")
+    found = set(re.findall(r"RU[0-9A-Z]{10}", flat))
+    return {
+        "planned": _all_dates(planned.group(0)) if planned else [],
+        "full": (float(volume.group(2).replace(",", ".")) == 100) if volume else full_words,
+        "fact": _all_dates(flat[j:j + 250]) if j >= 0 else [],
+        "same_issue": not found or not isins or bool(found & isins),
+    }
+
+
+def _business_days(start: str, finish: str, workdays: set[str]) -> int:
+    """Рабочие дни после `start` до `finish` включительно."""
+    day, end, count = dt.date.fromisoformat(start), dt.date.fromisoformat(finish), 0
+    while day < end:
+        day += dt.timedelta(days=1)
+        count += day.isoformat() in workdays
+    return count
+
+
+def cmd_cures() -> None:
+    """Дата выплаты после каждого неплатежа и число рабочих дней k → cures.csv.
+
+    Выплатой считается сообщение типа 167, в котором плановая дата совпадает
+    с датой неплатежа, обязательство исполнено полностью и выпуск тот же.
+    Дата — фактическая из текста, если она есть, иначе дата сообщения, но
+    не в сам день неплатежа: такое сообщение пишут о плановой выплате.
+    """
+    with (OUT / "business_days.csv").open() as fh:
+        workdays = {row["date"] for row in csv.DictReader(fh)}
+    rows = []
+    for c in _cure_candidates():
+        path = RAW / "cures" / f"{c['company_id']}_{c['due_date']}.json"
+        cure, how, guid = "", "", ""
+        if path.exists():
+            found = sorted((m for m in json.loads(path.read_text())["foundEventsList"]
+                            if m["companyID"] == c["company_id"]), key=lambda m: m["eventDate"])
+            for m in found:
+                page = RAW / "events" / f"{m['pseudoGUID']}.html"
+                if not page.exists():
+                    continue
+                msg = _cure_message(_text(page), c["isins"])
+                if c["due_date"] not in msg["planned"] or not msg["full"] or not msg["same_issue"]:
+                    continue
+                fact = [day for day in msg["fact"] if day >= c["due_date"]]
+                if fact:
+                    cure, how = fact[0], "фактическая дата в тексте"
+                elif m["eventDate"][:10] > c["due_date"]:
+                    cure, how = m["eventDate"][:10], "дата сообщения"
+                if cure:
+                    guid = m["pseudoGUID"]
+                    break
+        rows.append({
+            "emitent_id": c["emitent_id"], "emitent_title": c["emitent_title"], "company": c["company"],
+            "due_date": c["due_date"], "group": c["group"], "isins": " ".join(sorted(c["isins"])),
+            "cure_date": cure, "how": how,
+            "k": _business_days(c["due_date"], cure, workdays) if cure else "",
+            "searched": path.exists(), "guid": guid,
+        })
+    with (OUT / "cures.csv").open("w", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
+    dated = [r for r in rows if r["cure_date"]]
+    print(f"неплатежей: {len(rows)}, с датой выплаты: {len(dated)}, "
+          f"k от {min(r['k'] for r in dated)} до {max(r['k'] for r in dated)} рабочих дней")
+
+
 if __name__ == "__main__":
     commands = {"list": cmd_list, "texts": cmd_texts, "parse": cmd_parse,
-                "extra-texts": cmd_extra_texts, "extra": cmd_extra,
-                "cures-texts": cmd_cures_texts, "restruct-list": cmd_restruct_list,
+                "cid-texts": cmd_cid_texts, "extra-texts": cmd_extra_texts, "extra": cmd_extra,
+                "cures-texts": cmd_cures_texts, "cures": cmd_cures, "restruct-list": cmd_restruct_list,
                 "restruct-texts": cmd_restruct_texts}
     if len(sys.argv) not in (2, 3) or sys.argv[1] not in commands:
         raise SystemExit(__doc__)
