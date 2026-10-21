@@ -1,0 +1,492 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Портфель</title>
+<style>
+:root {
+  color-scheme: light;
+  --bg: #f5f5f3; --surface: #fcfcfb; --surface-2: #f0efec; --line: #e2e1dc;
+  --text: #0b0b0b; --text-2: #52514e; --muted: #85837d;
+  --accent: #2a78d6;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100;
+  --good: #0a7d0a; --bad: #c22f2f; --warn-bg: #fff4dc; --warn-line: #f0c766;
+  --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --bg: #111110; --surface: #1a1a19; --surface-2: #242422; --line: #33332f;
+    --text: #f0efec; --text-2: #c3c2b7; --muted: #8d8c85;
+    --accent: #3987e5;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+    --good: #3cc23c; --bad: #ec6b6b; --warn-bg: #2e2612; --warn-line: #7a5d14;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  font-variant-numeric: tabular-nums; }
+header { position: sticky; top: 0; z-index: 5; background: var(--bg); border-bottom: 1px solid var(--line); }
+.bar { max-width: 1240px; margin: 0 auto; padding: 12px 16px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.logo { font-weight: 700; font-size: 17px; margin-right: 8px; }
+.seg { display: inline-flex; background: var(--surface-2); border-radius: 8px; padding: 2px; }
+.seg button { border: 0; background: none; color: var(--text-2); padding: 6px 12px; border-radius: 6px; font: inherit; cursor: pointer; }
+.seg button.on { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+.spacer { flex: 1; }
+.sync { display: flex; gap: 8px; align-items: center; color: var(--muted); font-size: 12px; }
+button.primary { border: 0; background: var(--accent); color: #fff; padding: 7px 14px; border-radius: 8px; font: inherit; cursor: pointer; }
+button.primary:disabled { opacity: .55; cursor: default; }
+nav { max-width: 1240px; margin: 0 auto; padding: 0 16px; display: flex; gap: 4px; overflow-x: auto; }
+nav a { padding: 8px 12px; color: var(--text-2); text-decoration: none; border-bottom: 2px solid transparent; white-space: nowrap; }
+nav a.on { color: var(--text); border-color: var(--accent); }
+main { max-width: 1240px; margin: 0 auto; padding: 16px; }
+.grid { display: grid; gap: 12px; }
+.tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 980px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 480px) { .tiles { grid-template-columns: 1fr; } }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; min-width: 0; }
+.card h2 { font-size: 13px; font-weight: 600; color: var(--text-2); margin: 0 0 10px; text-transform: none; }
+.tile .label { color: var(--text-2); font-size: 12px; }
+.tile .value { font-size: 22px; font-weight: 650; margin-top: 2px; }
+.tile .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.hero .value { font-size: 30px; }
+.pos { color: var(--good); } .neg { color: var(--bad); }
+.two { grid-template-columns: 2fr 1fr; }
+@media (max-width: 860px) { .two { grid-template-columns: 1fr; } }
+table { width: 100%; border-collapse: collapse; }
+th, td { padding: 7px 8px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { color: var(--text-2); font-weight: 500; font-size: 12px; cursor: pointer; user-select: none; position: sticky; top: 0; background: var(--surface); }
+th:first-child, td:first-child, td.l, th.l { text-align: left; }
+td.name { white-space: normal; min-width: 180px; }
+.up td.name { min-width: 0; }
+td .isin { color: var(--muted); font-size: 11px; }
+tr:hover td { background: var(--surface-2); }
+.scroll { overflow-x: auto; }
+.tag { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 4px; background: var(--surface-2); color: var(--text-2); margin-left: 4px; }
+.tag.warn { background: var(--warn-bg); color: var(--text); }
+.notice { background: var(--warn-bg); border: 1px solid var(--warn-line); border-radius: var(--radius); padding: 10px 14px; margin-bottom: 12px; }
+.notice ul { margin: 4px 0 0; padding-left: 18px; }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--text-2); margin-bottom: 6px; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+.chart { position: relative; }
+.chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.chart text { fill: var(--muted); font-size: 11px; }
+.tip { position: absolute; pointer-events: none; background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
+  padding: 8px 10px; font-size: 12px; box-shadow: 0 4px 14px rgba(0,0,0,.12); min-width: 160px; display: none; z-index: 3; }
+.tip b { display: block; margin-bottom: 4px; }
+.tip .row { display: flex; justify-content: space-between; gap: 12px; color: var(--text-2); }
+.hbar { display: grid; grid-template-columns: minmax(120px, 34%) 1fr 92px; gap: 10px; align-items: center; padding: 4px 0; }
+.hbar .lbl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.hbar .track { height: 10px; background: var(--surface-2); border-radius: 4px; overflow: hidden; }
+.hbar .fill { height: 100%; background: var(--s1); border-radius: 4px; }
+.hbar .num { text-align: right; color: var(--text-2); font-size: 12px; }
+.muted { color: var(--muted); }
+form.op { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; align-items: end; }
+form.op label { display: grid; gap: 3px; font-size: 12px; color: var(--text-2); }
+input, select { font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--text); min-width: 0; }
+.filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; align-items: center; }
+.empty { color: var(--muted); padding: 24px 0; text-align: center; }
+.del { border: 0; background: none; color: var(--muted); cursor: pointer; }
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <span class="logo">Портфель</span>
+    <div class="seg" id="pf"></div>
+    <span class="spacer"></span>
+    <span class="sync"><span id="syncInfo"></span><button class="primary" id="syncBtn">Обновить</button></span>
+  </div>
+  <nav id="tabs">
+    <a href="#overview" data-tab="overview">Обзор</a>
+    <a href="#positions" data-tab="positions">Позиции</a>
+    <a href="#income" data-tab="income">Доходы</a>
+    <a href="#structure" data-tab="structure">Структура</a>
+    <a href="#operations" data-tab="operations">Операции</a>
+  </nav>
+</header>
+<main id="view"><div class="empty">Загрузка…</div></main>
+
+<script>
+const state = { portfolio: localGet("pf") || "", tab: location.hash.slice(1) || "overview", report: null, ops: null,
+                sort: { key: "value_full", dir: -1 }, opFilter: "" };
+const KIND = { buy: "Покупка", sell: "Продажа", opening: "Входящий остаток", coupon: "Купон", dividend: "Дивиденды",
+  amortization: "Амортизация", redemption: "Погашение", bonus: "Бонус", fee: "Комиссия", tax: "Налог",
+  deposit: "Пополнение", withdrawal: "Вывод", other: "Прочее" };
+const INCOME_SERIES = [["coupon", "Купоны", "--s1"], ["dividend", "Дивиденды", "--s2"], ["bonus", "Бонусы", "--s3"]];
+const FLAG = { opening: ["цена покупки ≈ стоимость на начало выписки", "остаток"],
+  jessica: ["состав из Jessica, сделок ещё нет", "без сделок"],
+  no_quote: ["нет котировки — показана себестоимость", "нет цены"],
+  oversold: ["продано больше, чем куплено: не хватает истории", "история"] };
+
+function localGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
+function localSet(k, v) { try { localStorage.setItem(k, v); } catch {} }
+const nf = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 });
+const nf2 = new Intl.NumberFormat("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const rub = (v, d) => v == null ? "—" : (d ? nf2 : nf).format(v) + " ₽";
+const signed = (v, d) => v == null ? "—" : (v > 0 ? "+" : v < 0 ? "−" : "") + rub(Math.abs(v), d);
+const pct = (v, s) => v == null ? "—" : (s && v > 0 ? "+" : v < 0 ? "−" : "") + nf2.format(Math.abs(v)) + " %";
+const cls = v => v > 0.005 ? "pos" : v < -0.005 ? "neg" : "";
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const MONTHS = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
+const monthLabel = m => MONTHS[+m.slice(5) - 1] + " " + m.slice(2, 4);
+const date = d => d ? d.slice(8, 10) + "." + d.slice(5, 7) + "." + d.slice(0, 4) : "—";
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok && r.status !== 409) throw new Error(body.error || r.statusText);
+  return body;
+}
+
+async function load() {
+  const q = state.portfolio ? "?portfolio=" + state.portfolio : "";
+  state.report = await api("/api/report" + q);
+  state.ops = null;
+  renderHeader();
+  render();
+  if (state.report.syncing) pollSync();
+}
+
+function renderHeader() {
+  const r = state.report;
+  const pf = document.getElementById("pf");
+  const items = [["", "Все"], ...Object.entries(r.portfolios)];
+  pf.innerHTML = items.map(([k, t]) => `<button data-pf="${k}" class="${k === state.portfolio ? "on" : ""}">${esc(t)}</button>`).join("");
+  const s = r.last_sync;
+  document.getElementById("syncInfo").textContent = s ? "обновлено " + s.finished.slice(8, 10) + "." + s.finished.slice(5, 7) + " в " + s.finished.slice(11, 16) : "ещё не обновлялось";
+  document.getElementById("syncBtn").disabled = r.syncing;
+  document.getElementById("syncBtn").textContent = r.syncing ? "Обновляю…" : "Обновить";
+  document.querySelectorAll("#tabs a").forEach(a => a.classList.toggle("on", a.dataset.tab === state.tab));
+}
+
+function notices() {
+  const r = state.report, items = [];
+  const s = r.last_sync;
+  if (!s) items.push("Данных ещё нет — нажми «Обновить»: загрузятся выписки Альфы, операции Т, цены и графики выплат.");
+  if (s) {
+    (s.silent || []).forEach(x => items.push("Не ответил: " + esc(x) + ". Показаны прошлые данные."));
+    if (s.alfa_period && s.alfa_period[1]) {
+      const days = Math.round((new Date(r.today) - new Date(s.alfa_period[1])) / 864e5);
+      if (days > 7 && (!state.portfolio || state.portfolio === "alpha"))
+        items.push(`Выписки Альфы есть по ${date(s.alfa_period[1])} — купоны и амортизации после этой даты не учтены. Положи свежую выписку в папку alpha/reports и обнови.`);
+    }
+    (s.notes || []).forEach(x => items.push(esc(x)));
+    if (s.unknown && s.unknown.length) items.push(`Нераспознанных строк: ${s.unknown.length} — список на вкладке «Операции».`);
+  }
+  if (r.reconcile.length) items.push("Количество расходится с составом Jessica: " +
+    r.reconcile.map(x => `${esc(x.name)} — здесь ${nf.format(x.ours)}, у Jessica ${nf.format(x.jessica)}`).join("; ") + ".");
+  return items.length ? `<div class="notice"><b>Обрати внимание</b><ul>${items.map(i => `<li>${i}</li>`).join("")}</ul></div>` : "";
+}
+
+function render() {
+  const view = document.getElementById("view");
+  const r = state.report;
+  const pages = { overview, positions, income, structure, operations };
+  view.innerHTML = notices() + (pages[state.tab] || overview)(r);
+  if (state.tab === "overview" || state.tab === "income") drawIncome(r, state.tab === "overview" ? 18 : 0);
+  if (state.tab === "operations") loadOps();
+}
+
+function tile(label, value, sub, klass = "") {
+  return `<div class="card tile ${klass}"><div class="label">${label}</div><div class="value">${value}</div>${sub ? `<div class="sub">${sub}</div>` : ""}</div>`;
+}
+
+function overview(r) {
+  const s = r.summary, inc = r.income;
+  const xirr = s.xirr == null ? "—" : pct(s.xirr * 100, true);
+  return `<div class="grid tiles">
+    ${tile("Стоимость портфеля", rub(s.value), `в т. ч. НКД ${rub(s.accrued_now)} · бумаг ${s.positions}`, "hero")}
+    ${tile("Прибыль за всё время", `<span class="${cls(s.profit)}">${signed(s.profit)}</span>`, `доходность ${xirr} годовых (XIRR)`, "hero")}
+    ${tile("Курсовая разница", `<span class="${cls(s.unrealized)}">${signed(s.unrealized)}</span>`, `${pct(s.unrealized_pct, true)} к вложенным ${rub(s.cost)}`)}
+    ${tile("Купоны получено", rub(s.coupons), `за вычетом НКД, уплаченного при покупке: ${signed(s.coupons_net)}`)}
+    ${tile("Дивиденды и бонусы", rub(s.dividends + s.bonus), `дивиденды ${rub(s.dividends)} · бонусы ${rub(s.bonus)}`)}
+    ${tile("Ожидается за 12 мес.", rub(inc.expected_12m), `≈ ${rub(inc.expected_12m_monthly)} в месяц, до налога`)}
+    ${tile("Вернётся номинала за 12 мес.", rub(inc.capital_back_12m), "амортизации и погашения")}
+    ${tile("Комиссии и налоги", `<span class="neg">${signed(-s.fees + s.taxes)}</span>`, `комиссии ${rub(s.fees)} · налоги ${rub(-s.taxes)}`)}
+  </div>
+  <div class="grid two" style="margin-top:12px">
+    <div class="card"><h2>Доходы по месяцам</h2>${incomeLegend()}<div class="chart" id="incomeChart"></div></div>
+    <div class="card"><h2>Ближайшие выплаты</h2>${upcomingList(r.upcoming.slice(0, 8))}</div>
+  </div>
+  <div class="grid two" style="margin-top:12px">
+    <div class="card"><h2>Крупнейшие позиции</h2>${hbars(r.structure.position.slice(0, 10))}</div>
+    <div class="card"><h2>По видам бумаг</h2>${hbars(r.structure.kind)}</div>
+  </div>`;
+}
+
+function upcomingList(events) {
+  if (!events.length) return `<div class="empty">Выплат в ближайшие 90 дней нет<br>или график ещё не загружен</div>`;
+  return `<table class="up"><tbody>${events.map(e => `<tr>
+    <td class="l">${date(e.date)}</td>
+    <td class="l name">${esc(e.name)}<div class="isin">${KIND[e.kind] || e.kind}${e.estimated ? " · сумма оценочная" : ""}</div></td>
+    <td>${rub(e.amount, true)}</td></tr>`).join("")}</tbody></table>`;
+}
+
+function hbars(items) {
+  if (!items.length) return `<div class="empty">Нет данных</div>`;
+  const max = Math.max(...items.map(i => i.value));
+  return items.map(i => `<div class="hbar" title="${esc(i.label)}: ${rub(i.value)}">
+    <span class="lbl">${esc(i.label)}</span>
+    <span class="track"><span class="fill" style="display:block;width:${(i.value / max * 100).toFixed(1)}%"></span></span>
+    <span class="num">${pct(i.share)}<br><span class="muted">${rub(i.value)}</span></span></div>`).join("");
+}
+
+const COLS = [
+  ["name", "Бумага", "l"], ["quantity", "Кол-во"], ["avg_price", "Средняя"], ["price", "Цена"],
+  ["value_full", "Стоимость"], ["share", "Доля"], ["unrealized", "Курсовая"], ["coupons", "Купоны / див."],
+  ["profit", "Прибыль"], ["profit_pct", "%"], ["maturity", "Погашение"],
+];
+
+function positions(r) {
+  const rows = r.positions.filter(p => p.quantity > 0);
+  const closed = r.positions.filter(p => p.quantity <= 0);
+  const { key, dir } = state.sort;
+  rows.sort((a, b) => {
+    const x = a[key], y = b[key];
+    if (typeof x === "string" || typeof y === "string") return dir * String(x ?? "").localeCompare(String(y ?? ""), "ru");
+    return dir * ((x ?? -Infinity) - (y ?? -Infinity));
+  });
+  const head = COLS.map(([k, t, c]) => `<th class="${c || ""}" data-sort="${k}">${t}${key === k ? (dir > 0 ? " ↑" : " ↓") : ""}</th>`).join("");
+  const line = p => {
+    const flags = p.flags.map(f => FLAG[f] ? `<span class="tag warn" title="${FLAG[f][0]}">${FLAG[f][1]}</span>` : "").join("");
+    const pf = state.portfolio ? "" : `<span class="tag">${esc(r.portfolios[p.portfolio] || p.portfolio)}</span>`;
+    const price = p.price_pct != null ? nf2.format(p.price_pct) + " %" : rub(p.price, true);
+    const avg = p.avg_price == null ? "—" : p.kind === "bond" && p.facevalue ? nf2.format(p.avg_price / p.facevalue * 100) + " %" : rub(p.avg_price, true);
+    return `<tr>
+      <td class="name">${esc(p.name)}${pf}${flags}<div class="isin">${p.isin}${p.quote_date ? " · цена на " + date(p.quote_date) : ""}</div></td>
+      <td>${nf.format(p.quantity)}</td><td>${avg}</td><td>${price}</td>
+      <td>${rub(p.value_full)}</td><td>${pct(p.share)}</td>
+      <td class="${cls(p.unrealized)}">${signed(p.unrealized)}</td>
+      <td>${rub(p.coupons + p.dividends)}</td>
+      <td class="${cls(p.profit)}">${signed(p.profit)}</td>
+      <td class="${cls(p.profit_pct)}">${pct(p.profit_pct, true)}</td>
+      <td>${p.kind === "bond" ? date(p.maturity) : "—"}</td></tr>`;
+  };
+  const closedTable = closed.length ? `<div class="card" style="margin-top:12px"><h2>Закрытые позиции</h2><div class="scroll"><table>
+    <thead><tr><th class="l">Бумага</th><th>Реализовано</th><th>Купоны / див.</th><th>Прибыль</th></tr></thead><tbody>
+    ${closed.map(p => `<tr><td class="name">${esc(p.name)}<div class="isin">${p.isin}</div></td><td class="${cls(p.realized)}">${signed(p.realized)}</td>
+      <td>${rub(p.coupons + p.dividends)}</td><td class="${cls(p.profit)}">${signed(p.profit)}</td></tr>`).join("")}
+    </tbody></table></div></div>` : "";
+  return `<div class="card"><div class="scroll"><table><thead><tr>${head}</tr></thead><tbody>
+    ${rows.map(line).join("") || `<tr><td colspan="11" class="empty">Позиций нет</td></tr>`}</tbody></table></div>
+    <p class="muted" style="font-size:12px;margin:10px 0 0">Цены облигаций — в процентах от номинала. Стоимость включает НКД. Прибыль = курсовая + реализованная + купоны и дивиденды ± НКД − комиссии − налоги.</p></div>${closedTable}`;
+}
+
+function incomeLegend() {
+  return `<div class="legend">${INCOME_SERIES.map(([, t, c]) => `<span><i style="background:var(${c})"></i>${t}</span>`).join("")}
+    <span><i style="background:repeating-linear-gradient(45deg,var(--s1) 0 2px,transparent 2px 5px);border:1px solid var(--s1)"></i>ожидается</span></div>`;
+}
+
+function income(r) {
+  const inc = r.income;
+  const rows = inc.months.slice().reverse().filter(m => Object.keys(m.received).length || Object.keys(m.expected).length);
+  const sum = o => Object.entries(o).filter(([k]) => ["coupon", "dividend", "bonus"].includes(k)).reduce((a, [, v]) => a + v, 0);
+  const cap = o => (o.amortization || 0) + (o.redemption || 0);
+  return `<div class="grid tiles">
+    ${tile("Получено в этом году", rub(inc.received_this_year), "купоны, дивиденды, бонусы")}
+    ${tile("Ожидается за 12 мес.", rub(inc.expected_12m), "по текущему составу, до налога")}
+    ${tile("В среднем в месяц", rub(inc.expected_12m_monthly), "ожидаемый пассивный доход")}
+    ${tile("Вернётся номинала", rub(inc.capital_back_12m), "амортизации и погашения за 12 мес.")}
+  </div>
+  <div class="card" style="margin-top:12px"><h2>Доходы по месяцам</h2>${incomeLegend()}<div class="chart" id="incomeChart"></div></div>
+  <div class="grid two" style="margin-top:12px">
+    <div class="card"><h2>По месяцам</h2><div class="scroll"><table><thead><tr><th class="l">Месяц</th><th>Получено</th><th>Ожидается</th><th>Возврат номинала</th></tr></thead><tbody>
+      ${rows.map(m => `<tr><td class="l">${monthLabel(m.month)}${m.estimated ? ' <span class="tag" title="часть купонов ещё не объявлена — взята последняя известная сумма">оценка</span>' : ""}</td>
+        <td>${sum(m.received) ? rub(sum(m.received), true) : "—"}</td><td>${sum(m.expected) ? rub(sum(m.expected), true) : "—"}</td>
+        <td>${cap(m.received) + cap(m.expected) ? rub(cap(m.received) + cap(m.expected), true) : "—"}</td></tr>`).join("")}
+    </tbody></table></div></div>
+    <div class="card"><h2>Выплаты на 90 дней</h2><div style="max-height:560px;overflow-y:auto">${upcomingList(r.upcoming)}</div></div>
+  </div>
+  <p class="muted" style="font-size:12px">Ожидаемые суммы — до НДФЛ: брокер удерживает 13 % с купонов в конце года или при выводе. Купоны флоатеров, ещё не объявленные, взяты по последней известной ставке.</p>`;
+}
+
+function drawIncome(r, lastN) {
+  const host = document.getElementById("incomeChart");
+  if (!host) return;
+  let months = r.income.months;
+  if (lastN) {
+    const idx = months.findIndex(m => m.month > r.today.slice(0, 7));
+    const end = idx < 0 ? months.length : Math.min(months.length, idx + 6);
+    months = months.slice(Math.max(0, end - lastN), end);
+  }
+  if (!months.length) { host.innerHTML = `<div class="empty">Выплат пока нет</div>`; return; }
+  const kinds = INCOME_SERIES.map(s => s[0]);
+  const total = m => kinds.reduce((a, k) => a + (m.received[k] || 0) + (m.expected[k] || 0), 0);
+  const max = Math.max(1, ...months.map(total));
+  const step = niceStep(max / 4), top = Math.ceil(max / step) * step;
+  const W = Math.max(560, host.clientWidth || 560), H = 240, L = 54, B = 26, T = 8;
+  const plotW = W - L - 8, plotH = H - B - T, band = plotW / months.length, bw = Math.min(34, band * 0.62);
+  const y = v => T + plotH - v / top * plotH;
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Доходы по месяцам"><defs>`;
+  INCOME_SERIES.forEach(([k, , c]) => {
+    svg += `<pattern id="h-${k}" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="5" height="5" fill="${css(c)}" opacity=".18"/><rect width="2" height="5" fill="${css(c)}"/></pattern>`;
+  });
+  svg += `</defs>`;
+  for (let v = 0; v <= top + 1e-9; v += step) {
+    svg += `<line x1="${L}" x2="${W - 8}" y1="${y(v)}" y2="${y(v)}" stroke="${css("--line")}" stroke-width="1"/>`;
+    svg += `<text x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${compact(v)}</text>`;
+  }
+  const every = Math.ceil(months.length / 12);
+  months.forEach((m, i) => {
+    const x = L + i * band + (band - bw) / 2;
+    let base = 0;
+    const segs = [];
+    for (const part of ["received", "expected"]) for (const k of kinds) {
+      const v = m[part][k] || 0;
+      if (v <= 0) continue;
+      segs.push({ v, k, part });
+    }
+    segs.forEach((s, j) => {
+      const y0 = y(base), y1 = y(base + s.v);
+      const h = Math.max(1, y0 - y1 - (j < segs.length - 1 ? 2 : 0));
+      const fill = s.part === "expected" ? `url(#h-${s.k})` : css(INCOME_SERIES.find(x => x[0] === s.k)[2]);
+      const last = j === segs.length - 1;
+      svg += last && h > 4
+        ? `<path d="${roundTop(x, y1, bw, h, 4)}" fill="${fill}"/>`
+        : `<rect x="${x}" y="${y1}" width="${bw}" height="${h}" fill="${fill}"/>`;
+      base += s.v;
+    });
+    if (i % every === 0) svg += `<text x="${x + bw / 2}" y="${H - 8}" text-anchor="middle">${monthLabel(m.month)}</text>`;
+    svg += `<rect class="hit" data-i="${i}" x="${L + i * band}" y="${T}" width="${band}" height="${plotH}" fill="transparent"/>`;
+  });
+  svg += `<line x1="${L}" x2="${W - 8}" y1="${y(0)}" y2="${y(0)}" stroke="${css("--muted")}" stroke-width="1"/></svg>`;
+  host.innerHTML = svg + `<div class="tip"></div>`;
+  const tip = host.querySelector(".tip");
+  host.querySelectorAll(".hit").forEach(el => {
+    el.addEventListener("mousemove", ev => {
+      const m = months[+el.dataset.i];
+      const rows = INCOME_SERIES.map(([k, t]) => {
+        const got = m.received[k] || 0, exp = m.expected[k] || 0;
+        return got + exp ? `<div class="row"><span>${t}${exp && !got ? " (ожид.)" : ""}</span><span>${rub(got + exp, true)}</span></div>` : "";
+      }).join("");
+      const cap = (m.received.amortization || 0) + (m.received.redemption || 0) + (m.expected.amortization || 0) + (m.expected.redemption || 0);
+      tip.innerHTML = `<b>${monthLabel(m.month)}${m.estimated ? " · оценка" : ""}</b>${rows || '<div class="row"><span>выплат нет</span></div>'}` +
+        (cap ? `<div class="row"><span>возврат номинала</span><span>${rub(cap, true)}</span></div>` : "");
+      const box = host.getBoundingClientRect();
+      tip.style.display = "block";
+      const left = ev.clientX - box.left + 14;
+      tip.style.left = Math.min(left, box.width - tip.offsetWidth - 4) + "px";
+      tip.style.top = Math.max(0, ev.clientY - box.top - 20) + "px";
+    });
+    el.addEventListener("mouseleave", () => tip.style.display = "none");
+  });
+}
+
+function roundTop(x, y, w, h, r) {
+  r = Math.min(r, w / 2, h);
+  return `M${x},${y + h} V${y + r} Q${x},${y} ${x + r},${y} H${x + w - r} Q${x + w},${y} ${x + w},${y + r} V${y + h} Z`;
+}
+function niceStep(raw) {
+  const p = Math.pow(10, Math.floor(Math.log10(raw || 1))), n = raw / p;
+  return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10) * p;
+}
+function compact(v) { return v >= 1e6 ? nf2.format(v / 1e6) + " млн" : v >= 1e3 ? nf.format(v / 1e3) + " тыс" : nf.format(v); }
+
+function structure(r) {
+  const s = r.structure;
+  return `<div class="grid two">
+    <div class="card"><h2>По эмитентам</h2>${hbars(s.issuer)}</div>
+    <div class="grid" style="align-content:start">
+      <div class="card"><h2>По видам бумаг</h2>${hbars(s.kind)}</div>
+      ${state.portfolio ? "" : `<div class="card"><h2>По брокерам</h2>${hbars(s.portfolio)}</div>`}
+      <div class="card"><h2>Облигации по году погашения</h2>${hbars(s.maturity.filter(x => x.label !== "не облигации"))}</div>
+    </div></div>`;
+}
+
+function operations(r) {
+  const s = r.last_sync;
+  const unknown = s && s.unknown && s.unknown.length ? `<div class="card" style="margin-top:12px"><h2>Нераспознанные строки последнего обновления</h2>
+    <ul style="margin:0;padding-left:18px">${s.unknown.map(x => `<li>${esc(x)}</li>`).join("")}</ul></div>` : "";
+  const pfOptions = Object.entries(r.portfolios).map(([k, t]) => `<option value="${k}" ${k === state.portfolio ? "selected" : ""}>${esc(t)}</option>`).join("");
+  return `<div class="card"><h2>Добавить операцию вручную</h2>
+    <form class="op" id="opForm">
+      <label>Портфель<select name="portfolio">${pfOptions}<option value="manual">Другой счёт</option></select></label>
+      <label>Вид<select name="kind">${Object.entries(KIND).map(([k, t]) => `<option value="${k}">${t}</option>`).join("")}</select></label>
+      <label>Дата<input type="date" name="date" required value="${r.today}"></label>
+      <label>ISIN<input name="isin" placeholder="RU000A…"></label>
+      <label>Количество<input name="quantity" type="number" step="any" min="0"></label>
+      <label>Сумма, ₽<input name="amount" type="number" step="any" min="0" required title="Для сделки — с НКД, без комиссии"></label>
+      <label>НКД, ₽<input name="accrued" type="number" step="any" min="0"></label>
+      <label>Комиссия, ₽<input name="fee" type="number" step="any" min="0"></label>
+      <label>Заметка<input name="note"></label>
+      <button class="primary" type="submit">Добавить</button>
+    </form>
+    <p class="muted" style="font-size:12px;margin:8px 0 0">Суммы вводятся положительными, знак ставится по виду операции. Удалить можно только операции, внесённые руками.</p>
+  </div>
+  <div class="card" style="margin-top:12px">
+    <div class="filters"><input id="opFilter" placeholder="Поиск по бумаге, ISIN, виду…" value="${esc(state.opFilter)}" style="flex:1;min-width:200px"></div>
+    <div class="scroll" id="opsTable"><div class="empty">Загрузка…</div></div>
+  </div>${unknown}`;
+}
+
+async function loadOps() {
+  if (!state.ops) {
+    const q = state.portfolio ? "?portfolio=" + state.portfolio : "";
+    state.ops = await api("/api/operations" + q);
+  }
+  drawOps();
+}
+
+function drawOps() {
+  const host = document.getElementById("opsTable");
+  if (!host) return;
+  const f = state.opFilter.toLowerCase();
+  const rows = state.ops.filter(o => !f || [o.name, o.isin, KIND[o.kind], o.note].some(x => String(x || "").toLowerCase().includes(f)));
+  if (!rows.length) { host.innerHTML = `<div class="empty">Операций нет</div>`; return; }
+  host.innerHTML = `<table><thead><tr><th class="l">Дата</th><th class="l">Вид</th><th class="l">Бумага</th><th>Кол-во</th><th>Сумма</th><th>НКД</th><th>Комиссия</th><th class="l">Источник</th><th></th></tr></thead><tbody>
+    ${rows.slice(0, 1000).map(o => `<tr>
+      <td class="l">${date(o.date)}</td><td class="l">${KIND[o.kind] || o.kind}</td>
+      <td class="name l">${esc(o.name || o.isin || "—")}${o.note ? `<div class="isin">${esc(o.note)}</div>` : ""}</td>
+      <td>${o.quantity ? nf.format(o.quantity) : ""}</td>
+      <td class="${cls(o.amount)}">${o.amount ? signed(o.amount, true) : ""}</td>
+      <td>${o.accrued ? rub(o.accrued, true) : ""}</td><td>${o.fee ? rub(o.fee, true) : ""}</td>
+      <td class="l muted">${esc(o.source)}</td>
+      <td>${o.source === "manual" ? `<button class="del" data-del="${o.id}" title="Удалить">✕</button>` : ""}</td></tr>`).join("")}
+  </tbody></table>${rows.length > 1000 ? `<p class="muted">Показаны первые 1000 из ${rows.length}.</p>` : ""}`;
+}
+
+async function pollSync() {
+  const st = await api("/api/sync");
+  if (st.running) { setTimeout(pollSync, 1500); return; }
+  if (st.error) alert("Обновление не удалось: " + st.error);
+  load();
+}
+
+document.addEventListener("click", async ev => {
+  const t = ev.target;
+  if (t.dataset.pf !== undefined) { state.portfolio = t.dataset.pf; localSet("pf", state.portfolio); load(); }
+  else if (t.id === "syncBtn") {
+    t.disabled = true; t.textContent = "Обновляю…";
+    await api("/api/sync", { method: "POST" });
+    pollSync();
+  } else if (t.dataset.sort) {
+    const k = t.dataset.sort;
+    state.sort = { key: k, dir: state.sort.key === k ? -state.sort.dir : (k === "name" ? 1 : -1) };
+    render();
+  } else if (t.dataset.del) {
+    if (!confirm("Удалить операцию?")) return;
+    await api("/api/operations/" + t.dataset.del, { method: "DELETE" });
+    load();
+  }
+});
+document.addEventListener("input", ev => { if (ev.target.id === "opFilter") { state.opFilter = ev.target.value; drawOps(); } });
+document.addEventListener("submit", async ev => {
+  if (ev.target.id !== "opForm") return;
+  ev.preventDefault();
+  try {
+    await api("/api/operations", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(Object.fromEntries(new FormData(ev.target))) });
+    load();
+  } catch (e) { alert(e.message); }
+});
+window.addEventListener("hashchange", () => { state.tab = location.hash.slice(1) || "overview"; renderHeader(); render(); });
+let resizeTimer;
+window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (state.report) render(); }, 150); });
+load().catch(e => { document.getElementById("view").innerHTML = `<div class="notice">Сервер не отвечает: ${esc(e.message)}</div>`; });
+</script>
+</body>
+</html>

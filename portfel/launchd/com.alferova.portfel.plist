@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.alferova.portfel</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/alferova_tv/Projects/jessica/.venv/bin/python</string>
+    <string>-m</string><string>portfel</string><string>serve</string>
+  </array>
+  <key>WorkingDirectory</key><string>/Users/alferova_tv/Projects/jessica/portfel</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>/Users/alferova_tv/Documents/Tracking/Invest/portfel/server.log</string>
+  <key>StandardErrorPath</key><string>/Users/alferova_tv/Documents/Tracking/Invest/portfel/server.log</string>
+</dict>
+</plist>
