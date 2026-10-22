@@ -125,19 +125,63 @@ def quotes(securities: list[dict]) -> dict[str, dict]:
                 if price is None or secid not in by_secid:
                     continue
                 face = info.get("FACEVALUE")
+                # Изменение за день считаем к официальному закрытию прошлого торгового дня.
+                prev = info.get("PREVLEGALCLOSEPRICE") or info.get("PREVPRICE")
                 if market == "bonds":
                     if not face:
                         continue
                     price = price * face / 100
+                    prev = prev * face / 100 if prev else None
                 result[by_secid[secid]["isin"]] = {
                     "price": float(price),
+                    "prev": float(prev) if prev else None,
                     "accrued": float(info.get("ACCRUEDINT") or 0),
                     "facevalue": face,
                     "currency": info.get("FACEUNIT") or info.get("CURRENCYID") or "",
                     "maturity": info.get("MATDATE") or None,
                     "updated": (row.get("SYSTIME") or row.get("UPDATETIME") or "")[:10] or None,
+                    "info": _bond_info(info, row) if market == "bonds" else {},
                 }
     return result
+
+
+def _bond_info(static: dict, market: dict) -> dict:
+    """Купон и доходности для карточки облигации, как их считает биржа."""
+    def clean(value):
+        return None if value in (None, "", "0000-00-00") else value
+
+    return {
+        "coupon_pct": clean(static.get("COUPONPERCENT")),
+        "coupon_value": clean(static.get("COUPONVALUE")),
+        "coupon_period": clean(static.get("COUPONPERIOD")),
+        "next_coupon": clean(static.get("NEXTCOUPON")),
+        "offer_date": clean(static.get("OFFERDATE")) or clean(static.get("BUYBACKDATE")),
+        "ytm": clean(market.get("YIELD")) or clean(static.get("YIELDATPREVWAPRICE")),
+        "duration_days": clean(market.get("DURATION")),
+        "list_level": clean(static.get("LISTLEVEL")),
+    }
+
+
+def history(security: dict, since: str) -> list[dict]:
+    """Цены закрытия с даты `since`: у облигаций в процентах от номинала, у акций в рублях."""
+    path = (f"history/engines/stock/markets/{security['market']}/boards/{security['board']}"
+            f"/securities/{security['secid']}")
+    rows: list[dict] = []
+    start = 0
+    while True:
+        payload = _get(path, {"from": since, "start": start,
+                              "history.columns": "TRADEDATE,LEGALCLOSEPRICE,CLOSE,WAPRICE"})
+        page = _table(payload, "history")
+        rows += page
+        if len(page) < 100:
+            break
+        start += len(page)
+    points = []
+    for row in rows:
+        price = row.get("LEGALCLOSEPRICE") or row.get("CLOSE") or row.get("WAPRICE")
+        if price:
+            points.append({"date": row["TRADEDATE"], "price": float(price)})
+    return points
 
 
 def bondization(secid: str) -> list[dict]:

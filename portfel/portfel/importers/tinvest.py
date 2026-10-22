@@ -86,6 +86,28 @@ def _instrument(tinvest, headers, uid: str, cache: dict) -> dict | None:
     return cache[uid]
 
 
+def sectors(isins: list[str]) -> dict[str, str]:
+    """Сектор экономики по ISIN. T знает и бумаги Альфы: они торгуются на той же бирже."""
+    tinvest, headers, _ = _client()
+    services = {"bond": "BondBy", "share": "ShareBy", "etf": "EtfBy"}
+    found: dict[str, str] = {}
+    for isin in isins:
+        try:
+            hits = [x for x in tinvest._post("InstrumentsService/FindInstrument", {"query": isin}, headers)["instruments"]
+                    if x.get("isin") == isin and x.get("instrumentType") in services]
+            if not hits:
+                continue
+            hit = hits[0]
+            instrument = tinvest._post(f"InstrumentsService/{services[hit['instrumentType']]}",
+                                       {"idType": "INSTRUMENT_ID_TYPE_UID", "id": hit["uid"]}, headers)["instrument"]
+        except (tinvest.Unavailable, KeyError) as exc:
+            log.warning("T-Invest: сектор %s не получен (%s)", isin, exc)
+            continue
+        if instrument.get("sector"):
+            found[isin] = instrument["sector"]
+    return found
+
+
 def convert(item: dict, instrument: dict | None) -> tuple[dict | None, str | None]:
     """Операция API → строка таблицы operations. Второе — причина, если пропущена."""
     kind = KINDS.get(item.get("type", ""))

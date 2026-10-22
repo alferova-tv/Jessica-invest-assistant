@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import re
 import sqlite3
 from collections import defaultdict
 
@@ -132,12 +133,15 @@ def build(conn: sqlite3.Connection, portfolio: str | None = None, today: dt.date
     loose = defaultdict(float)  # комиссии, налоги, бонусы без привязки к бумаге
     flows: list[tuple[dt.date, float]] = []
     received = defaultdict(lambda: defaultdict(float))  # месяц → вид → сумма
+    received_items = defaultdict(lambda: defaultdict(float))  # месяц → (ISIN, вид) → сумма
     for op in ops:
         if op["kind"] in (db.DEPOSIT, db.WITHDRAWAL, db.OTHER):
+            loose[op["kind"]] += op["amount"]  # только для простой доходности, в XIRR не идут
             continue
         flows.append((dt.date.fromisoformat(op["date"]), op["amount"] - (op["fee"] or 0.0)))
         if op["kind"] in (db.COUPON, db.DIVIDEND, db.BONUS, db.AMORTIZATION, db.REDEMPTION):
             received[_month(op["date"])][op["kind"]] += op["amount"]
+            received_items[_month(op["date"])][(op["isin"], op["kind"])] += op["amount"]
         if not op["isin"]:
             loose[op["kind"]] += op["amount"]
             loose["fees"] += op["fee"] or 0.0
@@ -159,6 +163,8 @@ def build(conn: sqlite3.Connection, portfolio: str | None = None, today: dt.date
             if quantity > EPS:
                 pos["flags"].add("no_quote")
         value = quantity * price
+        prev = quote.get("prev") if quote else None
+        day_change = quantity * (price - prev) if prev and quantity > EPS else None
         accrued_now = quantity * accrued_unit
         unrealized = value - pos["cost"] if quantity > EPS else 0.0
         income = pos["coupons"] + pos["dividends"] + pos["bonus"]
@@ -167,7 +173,7 @@ def build(conn: sqlite3.Connection, portfolio: str | None = None, today: dt.date
         rows.append({
             "portfolio": pf, "isin": isin,
             "name": security.get("name") or isin, "kind": security.get("kind") or "other",
-            "issuer": security.get("issuer") or "", "maturity": security.get("maturity"),
+            "issuer": security.get("issuer") or "", "maturity": security.get("maturity"), "sector": security.get("sector"),
             "facevalue": security.get("facevalue"),
             "quantity": quantity, "cost": pos["cost"],
             "avg_price": pos["cost"] / quantity if quantity > EPS else None,
@@ -182,6 +188,8 @@ def build(conn: sqlite3.Connection, portfolio: str | None = None, today: dt.date
             "profit": profit, "profit_pct": profit / pos["invested"] * 100 if pos["invested"] > EPS else None,
             "first_date": pos["first_date"],
             "quote_date": quote["date"] if quote else None,
+            "day_change": day_change,
+            "day_change_pct": (price / prev - 1) * 100 if day_change is not None else None,
             "flags": sorted(pos["flags"]),
         })
     open_rows = [r for r in rows if r["quantity"] > EPS]
@@ -194,13 +202,19 @@ def build(conn: sqlite3.Connection, portfolio: str | None = None, today: dt.date
         flows.append((today, total_value))
     summary = _summary(rows, loose, total_value)
     summary["xirr"] = xirr(flows)
+    income = _income(conn, received, received_items, securities, open_rows, today)
+    summary["passive_pct"] = income["expected_12m"] / total_value * 100 if total_value > EPS else None
+    moved = [r for r in open_rows if r["day_change"] is not None]
+    summary["day_change"] = sum(r["day_change"] for r in moved) if moved else None
+    base = sum(r["value"] - r["day_change"] for r in moved)
+    summary["day_change_pct"] = summary["day_change"] / base * 100 if moved and base > EPS else None
 
     return {
         "portfolio": portfolio,
         "today": today.isoformat(),
         "summary": summary,
         "positions": rows,
-        "income": _income(conn, received, open_rows, today),
+        "income": income,
         "structure": _structure(open_rows, total_value),
         "upcoming": _upcoming(conn, open_rows, today),
         "reconcile": _reconcile(open_rows, portfolio),
@@ -221,6 +235,7 @@ def _summary(rows: list[dict], loose: dict, total_value: float) -> dict:
     profit = (unrealized + total("realized") + income + accrued_received - accrued_paid + accrued_now
               - fees + taxes)
     invested = sum(r["cost"] for r in open_rows)
+    deposited = loose.get(db.DEPOSIT, 0.0) + loose.get(db.WITHDRAWAL, 0.0)
     return {
         "value": total_value,
         "cost": invested,
@@ -239,6 +254,9 @@ def _summary(rows: list[dict], loose: dict, total_value: float) -> dict:
         "fees": fees,
         "taxes": taxes,
         "profit": profit,
+        "deposited": deposited,
+        # Простая доходность, как в Snowball: прибыль за всё время к пополнениям за вычетом выводов.
+        "return_pct": profit / deposited * 100 if deposited > EPS else None,
         "invested_total": total("invested"),
         "positions": len(open_rows),
         "flags": sorted({flag for r in open_rows for flag in r["flags"]}),
@@ -270,13 +288,21 @@ def _future(conn: sqlite3.Connection, open_rows: list[dict], today: dt.date, unt
     return events
 
 
-def _income(conn, received, open_rows, today) -> dict:
-    """Помесячно: полученное (прошлое) и ожидаемое на 12 месяцев вперёд."""
+def _income(conn, received, received_items, securities, open_rows, today) -> dict:
+    """Помесячно: полученное (прошлое) и ожидаемое на 12 месяцев вперёд.
+
+    `items` — те же суммы по бумагам, для подсказки «кто сколько платит в этом месяце».
+    """
     until = _add_months(today, 13) - dt.timedelta(days=1)
     expected = defaultdict(lambda: defaultdict(float))
+    items = defaultdict(lambda: defaultdict(float))  # месяц → (ISIN, вид, ожидается) → сумма
+    for month, by_key in received_items.items():
+        for (isin, kind), amount in by_key.items():
+            items[month][(isin, kind, False)] += amount
     estimated_months = set()
     for event in _future(conn, open_rows, today, until):
         expected[_month(event["date"])][event["kind"]] += event["amount"]
+        items[_month(event["date"])][(event["isin"], event["kind"], True)] += event["amount"]
         if event["estimated"]:
             estimated_months.add(_month(event["date"]))
     months = sorted(set(received) | set(expected))
@@ -292,6 +318,10 @@ def _income(conn, received, open_rows, today) -> dict:
         "received": {k: round(v, 2) for k, v in received.get(m, {}).items()},
         "expected": {k: round(v, 2) for k, v in expected.get(m, {}).items()},
         "estimated": m in estimated_months,
+        "items": sorted(({"name": (securities.get(isin) or {}).get("name") or isin, "kind": kind,
+                          "expected": exp, "amount": round(v, 2)}
+                         for (isin, kind, exp), v in items.get(m, {}).items() if isin and abs(v) > 0.005),
+                        key=lambda x: -x["amount"]),
     } for m in months]
     next12 = sum(v for m in expected.values() for k, v in m.items() if k in (db.COUPON, db.DIVIDEND))
     year = str(today.year)
@@ -310,6 +340,20 @@ def _income(conn, received, open_rows, today) -> dict:
 def _upcoming(conn, open_rows, today) -> list[dict]:
     events = _future(conn, open_rows, today, today + dt.timedelta(days=90))
     return sorted(events, key=lambda e: (e["date"], e["name"]))
+
+
+# Коды секторов T-Invest → подписи, как в приложении Т.
+SECTORS = {
+    "energy": "Энергетика", "financial": "Финансы", "industrials": "Промышленность", "it": "IT",
+    "consumer": "Потребительский сектор", "materials": "Сырьё", "telecom": "Телеком", "utilities": "Электроэнергетика",
+    "real_estate": "Недвижимость", "health_care": "Здравоохранение", "government": "Госбумаги",
+    "municipal": "Муниципальные", "ecomaterials": "Экоматериалы", "green_energy": "Зелёная энергетика",
+    "green_buildings": "Зелёное строительство", "other": "Прочее",
+}
+
+
+# Где разметка T не годится: ЭкоНива у T в «other», а это агросектор.
+SECTOR_FIXES = {"RU000A10EJZ8": "Агро"}
 
 
 def _structure(open_rows: list[dict], total: float) -> dict:
@@ -331,10 +375,20 @@ def _structure(open_rows: list[dict], total: float) -> dict:
     def issuer(row):
         return _short_issuer(row["issuer"]) or row["name"]
 
+    def sector(row):
+        if row["isin"] in SECTOR_FIXES:
+            return SECTOR_FIXES[row["isin"]]
+        if re.search(r"\bСФО\b|специализированное финансовое общество", row["issuer"] or "", re.I):
+            return "Секьюритизация"  # у T это «financial», но платит пул розничных кредитов, а не банк
+        if row["kind"] == "fund":
+            return "Фонды"  # у фондов денежного рынка сектора нет, T пишет «other»
+        return SECTORS.get(row.get("sector"), "Не определён" if not row.get("sector") else row["sector"])
+
     return {
         "kind": group(lambda r: kinds.get(r["kind"], "Прочее")),
         "portfolio": group(lambda r: PORTFOLIO_TITLES.get(r["portfolio"], r["portfolio"])),
         "issuer": group(issuer),
+        "sector": group(sector),
         "maturity": sorted(group(maturity), key=lambda x: x["label"]),
         "position": sorted(({"label": r["name"], "value": r["value_full"], "share": r["share"]} for r in open_rows),
                            key=lambda x: -x["value"]),
@@ -373,6 +427,39 @@ def _reconcile(open_rows: list[dict], portfolio: str | None) -> list[dict]:
             diff.append({"portfolio": key[0], "isin": key[1], "name": names.get(key[1], key[1]),
                          "ours": ours.get(key, 0), "jessica": theirs.get(key, 0)})
     return diff
+
+
+def security(conn: sqlite3.Connection, isin: str, portfolio: str | None = None,
+             today: dt.date | None = None) -> dict:
+    """Карточка бумаги: справочник, котировка, позиции по портфелям, сделки и выплаты."""
+    today = today or dt.date.today()
+    info = conn.execute("SELECT * FROM securities WHERE isin = ?", (isin,)).fetchone()
+    if not info:
+        raise ValueError("нет такой бумаги")
+    quote = conn.execute("SELECT * FROM quotes WHERE isin = ?", (isin,)).fetchone()
+    report = build(conn, portfolio, today)
+    rows = [r for r in report["positions"] if r["isin"] == isin]
+    held = [r for r in rows if r["quantity"] > EPS]
+    until = _add_months(today, 13) - dt.timedelta(days=1)
+    future = _future(conn, held, today, until)
+    for row in rows:
+        mine = [e for e in future if e["portfolio"] == row["portfolio"]]
+        row["expected_12m"] = sum(e["amount"] for e in mine if e["kind"] in (db.COUPON, db.DIVIDEND))
+        row["capital_back_12m"] = sum(e["amount"] for e in mine if e["kind"] in (db.AMORTIZATION, db.REDEMPTION))
+    where, args = ("AND portfolio = ?", [portfolio]) if portfolio else ("", [])
+    deals = [dict(r) for r in conn.execute(
+        f"SELECT * FROM operations WHERE isin = ? {where} ORDER BY date DESC, id DESC", [isin, *args])]
+    schedule = [dict(r) for r in conn.execute(
+        "SELECT date, kind, per_unit, estimated FROM payments WHERE isin = ? AND date > ? ORDER BY date LIMIT 24",
+        (isin, today.isoformat()))]
+    return {
+        "security": dict(info),
+        "quote": {**dict(quote), "info": json.loads(quote["info"] or "{}")} if quote else None,
+        "positions": rows,
+        "operations": deals,
+        "schedule": schedule,
+        "upcoming": sorted(future, key=lambda e: e["date"]),
+    }
 
 
 def operations(conn: sqlite3.Connection, portfolio: str | None = None, limit: int = 2000) -> list[dict]:

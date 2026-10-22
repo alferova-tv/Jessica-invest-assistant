@@ -107,6 +107,21 @@ def resolve_securities(conn: sqlite3.Connection, report: dict) -> None:
         db.upsert_security(conn, {**info, "updated": dt.date.today().isoformat()})
 
 
+def resolve_sectors(conn: sqlite3.Connection, report: dict) -> None:
+    """Сектор спрашиваем у T-Invest один раз на бумагу: он не меняется."""
+    missing = [isin for isin in held_isins(conn)
+               if not (conn.execute("SELECT sector FROM securities WHERE isin = ?", (isin,)).fetchone() or [None])[0]]
+    if not missing:
+        return
+    try:
+        found = tinvest.sectors(missing)
+    except Exception as exc:  # нет токена, VPN — диверсификация подождёт
+        report["silent"].add(f"T-Invest, секторы ({type(exc).__name__}: {exc})")
+        return
+    for isin, sector in found.items():
+        db.upsert_security(conn, {"isin": isin, "sector": sector})
+
+
 def held_isins(conn: sqlite3.Connection) -> list[str]:
     from .model import build
 
@@ -120,10 +135,11 @@ def refresh_quotes(conn: sqlite3.Connection, report: dict) -> None:
     today = dt.date.today().isoformat()
     for isin, quote in found.items():
         conn.execute(
-            "INSERT INTO quotes (isin, price, accrued, date, source) VALUES (?, ?, ?, ?, 'iss') "
+            "INSERT INTO quotes (isin, price, accrued, date, source, prev, info) VALUES (?, ?, ?, ?, 'iss', ?, ?) "
             "ON CONFLICT(isin) DO UPDATE SET price = excluded.price, accrued = excluded.accrued, "
-            "date = excluded.date, source = excluded.source",
-            (isin, quote["price"], quote["accrued"], quote["updated"] or today),
+            "date = excluded.date, source = excluded.source, prev = excluded.prev, info = excluded.info",
+            (isin, quote["price"], quote["accrued"], quote["updated"] or today, quote["prev"],
+             json.dumps(quote["info"], ensure_ascii=False)),
         )
         db.upsert_security(conn, {"isin": isin, "facevalue": quote["facevalue"],
                                   "currency": quote["currency"], "maturity": quote["maturity"]})
@@ -240,6 +256,21 @@ def fill_from_jessica(conn: sqlite3.Connection, report: dict) -> None:
         report["notes"].append(f"Т: {added} позиций взяты из holdings.json Jessica без истории сделок")
 
 
+def run_quotes() -> dict:
+    """Только котировки — для фонового обновления в часы торгов, без выписок и T-Invest."""
+    report = {"started": dt.datetime.now().isoformat(timespec="seconds")}
+    conn = db.connect()
+    try:
+        with conn:
+            refresh_quotes(conn, report)
+        report["finished"] = dt.datetime.now().isoformat(timespec="seconds")
+        with conn:
+            db.set_meta(conn, "last_quotes", json.dumps(report, ensure_ascii=False))
+    finally:
+        conn.close()
+    return report
+
+
 def run(conn: sqlite3.Connection | None = None, *, tinvest_api: bool = True) -> dict:
     report = {"started": dt.datetime.now().isoformat(timespec="seconds"), "added": {}, "unknown": [],
               "silent": set(), "notes": []}
@@ -253,6 +284,9 @@ def run(conn: sqlite3.Connection | None = None, *, tinvest_api: bool = True) -> 
                 import_tinvest(conn, report)
         with conn:
             resolve_securities(conn, report)
+        if tinvest_api:
+            with conn:
+                resolve_sectors(conn, report)
         with conn:
             refresh_quotes(conn, report)
         with conn:

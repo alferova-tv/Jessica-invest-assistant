@@ -2,13 +2,15 @@
 
     GET  /api/report?portfolio=alpha     сводка, позиции, доходы, структура
     GET  /api/operations?portfolio=…     журнал операций
+    GET  /api/security?isin=…            карточка бумаги с историей цены за год
     POST /api/operations                 добавить операцию руками
     DELETE /api/operations/<id>          удалить операцию (только ручную)
     POST /api/sync                       запустить синхронизацию в фоне
     GET  /api/sync                       состояние синхронизации и итог последней
 
 Синхронизация идёт в отдельном потоке со своим соединением: она ходит в сеть
-до минуты, и страница не должна висеть всё это время.
+до минуты, и страница не должна висеть всё это время. Ещё один поток раз
+в 15 минут в часы торгов обновляет только котировки.
 """
 
 from __future__ import annotations
@@ -17,19 +19,24 @@ import datetime as dt
 import json
 import logging
 import threading
+import time
 import traceback
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
+from zoneinfo import ZoneInfo
 
-from . import db, model, sync
+from . import db, iss, model, sync
 
 log = logging.getLogger(__name__)
 
 STATIC = Path(__file__).resolve().parent / "static"
 TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
          ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml"}
+
+# История цены за год меняется раз в день — не спрашиваем ISS на каждое открытие карточки.
+_history_cache: dict[tuple[str, str], list[dict]] = {}
 
 _sync_lock = threading.Lock()
 _sync_state = {"running": False, "error": None}
@@ -53,6 +60,40 @@ def start_sync(tinvest_api: bool = True) -> bool:
     _sync_state["running"] = True
     threading.Thread(target=_run_sync, args=(tinvest_api,), daemon=True).start()
     return True
+
+
+QUOTES_EVERY = 15 * 60
+MSK = ZoneInfo("Europe/Moscow")
+
+
+def _trading(now: dt.datetime) -> bool:
+    """Будни, 10:00–20:00 МСК."""
+    return now.weekday() < 5 and dt.time(10) <= now.time() <= dt.time(20)
+
+
+def _quotes_loop() -> None:
+    while True:
+        if _trading(dt.datetime.now(MSK)) and _sync_lock.acquire(blocking=False):
+            try:
+                sync.run_quotes()
+            except Exception:  # VPN, ISS молчит — попробуем через 15 минут
+                log.exception("котировки не обновились")
+            finally:
+                _sync_lock.release()
+        time.sleep(QUOTES_EVERY)
+
+
+def _history(security: dict) -> tuple[list[dict] | None, str | None]:
+    if not (security.get("secid") and security.get("market") and security.get("board")):
+        return None, "биржа не знает эту бумагу"
+    key = (security["isin"], dt.date.today().isoformat())
+    if key not in _history_cache:
+        since = (dt.date.today() - dt.timedelta(days=366)).isoformat()
+        try:
+            _history_cache[key] = iss.history(security, since)
+        except iss.Unavailable as exc:
+            return None, f"ISS не ответил ({exc})"
+    return _history_cache[key], None
 
 
 def _manual_operation(body: dict) -> dict:
@@ -131,6 +172,12 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/operations":
             with db.session() as conn:
                 return self._send(HTTPStatus.OK, model.operations(conn, portfolio))
+        if path == "/api/security":
+            with db.session() as conn:
+                card = model.security(conn, query.get("isin") or "", portfolio)
+            card["history"], card["history_error"] = _history(card["security"])
+            card["portfolios"] = model.PORTFOLIO_TITLES
+            return self._send(HTTPStatus.OK, card)
         if path == "/api/sync":
             with db.session() as conn:
                 return self._send(HTTPStatus.OK, {**_sync_state, "last": model.last_sync(conn)})
@@ -167,6 +214,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def serve(port: int) -> None:
     db.connect().close()  # создать базу до первого запроса
+    threading.Thread(target=_quotes_loop, daemon=True).start()
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     print(f"Портфель: http://localhost:{port}")
     try:

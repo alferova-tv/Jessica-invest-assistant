@@ -63,7 +63,8 @@ CREATE TABLE IF NOT EXISTS securities (
     facevalue  REAL,
     currency   TEXT,
     maturity   TEXT,
-    updated    TEXT
+    updated    TEXT,
+    sector     TEXT                      -- сектор экономики по T-Invest: energy, financial…
 );
 CREATE INDEX IF NOT EXISTS securities_reg ON securities (regnumber);
 
@@ -73,7 +74,9 @@ CREATE TABLE IF NOT EXISTS quotes (
     price      REAL NOT NULL,
     accrued    REAL NOT NULL DEFAULT 0,
     date       TEXT NOT NULL,
-    source     TEXT NOT NULL
+    source     TEXT NOT NULL,
+    prev       REAL,                     -- закрытие прошлого торгового дня, за штуку
+    info       TEXT                      -- JSON: купон, доходность к погашению, дюрация
 );
 
 -- Будущие выплаты на одну бумагу: купоны, амортизации, погашения.
@@ -102,6 +105,13 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(payments)")}
     if "start" not in columns:  # база первой ночной версии
         conn.execute("ALTER TABLE payments ADD COLUMN start TEXT")
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(quotes)")}
+    if "prev" not in columns:  # до изменения за день и карточки бумаги
+        conn.execute("ALTER TABLE quotes ADD COLUMN prev REAL")
+        conn.execute("ALTER TABLE quotes ADD COLUMN info TEXT")
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(securities)")}
+    if "sector" not in columns:  # до диверсификации по секторам
+        conn.execute("ALTER TABLE securities ADD COLUMN sector TEXT")
     return conn
 
 
@@ -132,7 +142,7 @@ def upsert_operation(conn: sqlite3.Connection, op: dict) -> bool:
 def upsert_security(conn: sqlite3.Connection, info: dict) -> None:
     """Дополнить справочник: пустые поля не затирают известные."""
     columns = [key for key in ("secid", "name", "kind", "issuer", "regnumber", "market", "board",
-                               "facevalue", "currency", "maturity", "updated") if info.get(key) not in (None, "")]
+                               "facevalue", "currency", "maturity", "updated", "sector") if info.get(key) not in (None, "")]
     conn.execute("INSERT OR IGNORE INTO securities (isin) VALUES (?)", (info["isin"],))
     if columns:
         conn.execute(

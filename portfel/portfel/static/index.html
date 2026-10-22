@@ -5,23 +5,34 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Портфель</title>
 <style>
+/* Палитра MP088: Hēi Sè Black #142030, Blue Whale #1E3442, Pico Eggplant #732553,
+   Stellar Strawberry #FF5C8D, Grauzone #85A3B2, Siesta Tan #E9D8C8.
+   Цвета графиков (--s*) — шаги тех же оттенков, проверенные валидатором dataviz
+   на различимость при дальтонизме: сами исходные цвета слишком светлые или серые для столбиков. */
 :root {
   color-scheme: light;
-  --bg: #f5f5f3; --surface: #fcfcfb; --surface-2: #f0efec; --line: #e2e1dc;
-  --text: #0b0b0b; --text-2: #52514e; --muted: #85837d;
-  --accent: #2a78d6;
-  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100;
-  --good: #0a7d0a; --bad: #c22f2f; --warn-bg: #fff4dc; --warn-line: #f0c766;
-  --radius: 10px;
+  --bg: #f3e9df; --surface: #fbf6f1; --surface-2: #efe3d6; --line: #e2d2c1;
+  --text: #142030; --text-2: #1e3442; --muted: #5e7886;
+  --accent: #732553; --on-accent: #fbf6f1;
+  --s1: #c42a62; --s2: #a0611f; --s3: #a0611f; --s4: #21709f;
+  /* бумаги внутри группы на пончике: соседние пары проверены валидатором */
+  --d0: #c42a62; --d1: #21709f; --d2: #9a7a12; --d3: #8a4fa6; --d4: #a0611f; --d5: #008aa8; --d6: #b9502f; --d7: #4a5fb8;
+  --good: #1e7a52; --bad: #c0392b; --warn-bg: #f6dfe6; --warn-line: #e3a3b8;
+  --hero: radial-gradient(120% 140% at 100% 0%, #ff5c8d 0%, #b43a72 38%, #732553 70%, #1e3442 120%);
+  --on-hero: #fbf6f1;
+  --radius: 12px;
 }
 @media (prefers-color-scheme: dark) {
   :root:where(:not([data-theme="light"])) {
     color-scheme: dark;
-    --bg: #111110; --surface: #1a1a19; --surface-2: #242422; --line: #33332f;
-    --text: #f0efec; --text-2: #c3c2b7; --muted: #8d8c85;
-    --accent: #3987e5;
-    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
-    --good: #3cc23c; --bad: #ec6b6b; --warn-bg: #2e2612; --warn-line: #7a5d14;
+    --bg: #142030; --surface: #1e3442; --surface-2: #26404f; --line: #2e4a5a;
+    --text: #f3e9df; --text-2: #c9d3d9; --muted: #85a3b2;
+    --accent: #ff5c8d; --on-accent: #142030;
+    --s1: #e8527f; --s2: #c4844c; --s3: #c4844c; --s4: #3a92cc;
+    --d0: #e8527f; --d1: #3a92cc; --d2: #ad8524; --d3: #b07cc6; --d4: #c4844c; --d5: #1fa3b0; --d6: #d0644a; --d7: #7a8fd6;
+    --good: #6fd4a0; --bad: #ff7a5c; --warn-bg: #3a2340; --warn-line: #732553;
+    --hero: radial-gradient(120% 140% at 100% 0%, #ff5c8d 0%, #a83a6c 35%, #732553 62%, #1e3442 110%);
+    --on-hero: #f3e9df;
   }
 }
 * { box-sizing: border-box; }
@@ -36,7 +47,7 @@ header { position: sticky; top: 0; z-index: 5; background: var(--bg); border-bot
 .seg button.on { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
 .spacer { flex: 1; }
 .sync { display: flex; gap: 8px; align-items: center; color: var(--muted); font-size: 12px; }
-button.primary { border: 0; background: var(--accent); color: #fff; padding: 7px 14px; border-radius: 8px; font: inherit; cursor: pointer; }
+button.primary { border: 0; background: var(--accent); color: var(--on-accent); padding: 7px 14px; border-radius: 8px; font: inherit; cursor: pointer; }
 button.primary:disabled { opacity: .55; cursor: default; }
 nav { max-width: 1240px; margin: 0 auto; padding: 0 16px; display: flex; gap: 4px; overflow-x: auto; }
 nav a { padding: 8px 12px; color: var(--text-2); text-decoration: none; border-bottom: 2px solid transparent; white-space: nowrap; }
@@ -51,7 +62,15 @@ main { max-width: 1240px; margin: 0 auto; padding: 16px; }
 .tile .label { color: var(--text-2); font-size: 12px; }
 .tile .value { font-size: 22px; font-weight: 650; margin-top: 2px; }
 .tile .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.hint { border-bottom: 1px dashed currentColor; }
+.q { display: inline-grid; place-items: center; width: 14px; height: 14px; border: 1px solid currentColor; border-radius: 50%;
+     font-size: 10px; line-height: 1; vertical-align: 1px; margin-left: 2px; }
+.hovertip { position: fixed; pointer-events: none; background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
+  padding: 8px 10px; font-size: 12px; line-height: 1.4; color: var(--text); box-shadow: 0 4px 14px rgba(0,0,0,.12); max-width: 280px; display: none; z-index: 10; }
 .hero .value { font-size: 30px; }
+.tile.glow { background: var(--hero); border-color: transparent; color: var(--on-hero); }
+.tile.glow .label, .tile.glow .sub { color: var(--on-hero); opacity: .85; }
+nav a.on { border-color: var(--s1); }
 .pos { color: var(--good); } .neg { color: var(--bad); }
 .two { grid-template-columns: 2fr 1fr; }
 @media (max-width: 860px) { .two { grid-template-columns: 1fr; } }
@@ -77,6 +96,7 @@ tr:hover td { background: var(--surface-2); }
   padding: 8px 10px; font-size: 12px; box-shadow: 0 4px 14px rgba(0,0,0,.12); min-width: 160px; display: none; z-index: 3; }
 .tip b { display: block; margin-bottom: 4px; }
 .tip .row { display: flex; justify-content: space-between; gap: 12px; color: var(--text-2); }
+.tip .row span:last-child { white-space: nowrap; }
 .hbar { display: grid; grid-template-columns: minmax(120px, 34%) 1fr 92px; gap: 10px; align-items: center; padding: 4px 0; }
 .hbar .lbl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
 .hbar .track { height: 10px; background: var(--surface-2); border-radius: 4px; overflow: hidden; }
@@ -89,6 +109,41 @@ input, select { font: inherit; padding: 6px 8px; border: 1px solid var(--line); 
 .filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; align-items: center; }
 .empty { color: var(--muted); padding: 24px 0; text-align: center; }
 .del { border: 0; background: none; color: var(--muted); cursor: pointer; }
+.halves { grid-template-columns: 1fr 1fr; }
+@media (max-width: 860px) { .halves { grid-template-columns: 1fr; } }
+a.sec { color: inherit; text-decoration: none; }
+a.sec:hover { color: var(--accent); }
+.mover { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--line); }
+.mover:last-child { border-bottom: 0; }
+.mover .r { text-align: right; white-space: nowrap; }
+.tip .items { border-top: 1px solid var(--line); margin-top: 6px; padding-top: 6px; }
+.tip .items .row span:first-child { max-width: 230px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tip i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; }
+.back { display: inline-block; color: var(--text-2); text-decoration: none; margin-bottom: 10px; cursor: pointer; }
+.sechead { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; align-items: flex-end; }
+.sechead h1 { font-size: 20px; margin: 0; }
+.big { font-size: 28px; font-weight: 650; }
+.kv { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; font-size: 13px; }
+.kv dt { color: var(--text-2); } .kv dd { margin: 0; text-align: right; }
+.kv h3 { grid-column: 1 / -1; font-size: 13px; margin: 10px 0 2px; }
+.kv h3:first-child { margin-top: 0; }
+.cols3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 28px; }
+@media (max-width: 860px) { .cols3 { grid-template-columns: 1fr; } }
+.comp { display: grid; grid-template-columns: minmax(220px, 300px) 1fr; gap: 24px; align-items: center; }
+@media (max-width: 760px) { .comp { grid-template-columns: 1fr; } }
+.donut { position: relative; max-width: 300px; margin: 0 auto; width: 100%; }
+.donut svg { display: block; width: 100%; height: auto; }
+.donut path { cursor: pointer; transition: opacity .15s; }
+.donut.hl path:not(.on) { opacity: .35; }
+.donut .center { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; pointer-events: none; }
+.donut .center b { font-size: 18px; } .donut .center span { color: var(--muted); font-size: 12px; }
+.comp table tr { cursor: pointer; }
+.comp table tr.on td { background: var(--surface-2); }
+.comp .sw { display: inline-block; width: 4px; height: 28px; border-radius: 2px; vertical-align: middle; margin-right: 10px; }
+.comp td .sub2 { color: var(--muted); font-size: 12px; }
+.ranges { display: flex; gap: 4px; margin-bottom: 8px; }
+.ranges button { border: 0; background: none; color: var(--text-2); padding: 3px 8px; border-radius: 6px; font: inherit; font-size: 12px; cursor: pointer; }
+.ranges button.on { background: var(--surface-2); color: var(--text); }
 </style>
 </head>
 <body>
@@ -110,12 +165,24 @@ input, select { font: inherit; padding: 6px 8px; border: 1px solid var(--line); 
 <main id="view"><div class="empty">Загрузка…</div></main>
 
 <script>
-const state = { portfolio: localGet("pf") || "", tab: location.hash.slice(1) || "overview", report: null, ops: null,
-                sort: { key: "value_full", dir: -1 }, opFilter: "" };
+const state = { comp: null, portfolio: localGet("pf") || "", tab: "overview", isin: null, card: null, range: 365, report: null, ops: null,
+                sort: { key: "value_full", dir: -1 }, opFilter: "", structBy: "issuer" };
+function route() {
+  const [tab, isin] = (location.hash.slice(1) || "overview").split("/");
+  state.tab = tab; state.isin = tab === "security" ? decodeURIComponent(isin || "") : null;
+}
+route();
+const PF_TITLES = { tinkoff: "Т", alpha: "Альфа" };
+const secLink = (isin, text) => `<a class="sec" href="#security/${encodeURIComponent(isin)}">${esc(text)}</a>`;
 const KIND = { buy: "Покупка", sell: "Продажа", opening: "Входящий остаток", coupon: "Купон", dividend: "Дивиденды",
   amortization: "Амортизация", redemption: "Погашение", bonus: "Бонус", fee: "Комиссия", tax: "Налог",
   deposit: "Пополнение", withdrawal: "Вывод", other: "Прочее" };
-const INCOME_SERIES = [["coupon", "Купоны", "--s1"], ["dividend", "Дивиденды", "--s2"], ["bonus", "Бонусы", "--s3"]];
+const INCOME_SERIES = [["coupon", "Купоны", "--s1"], ["dividend", "Дивиденды и бонусы", "--s2"]];
+// В графике выплат возврат номинала идёт отдельным сегментом поверх доходов, как в Snowball.
+const PAY_SERIES = [...INCOME_SERIES, ["capital", "Возврат номинала", "--s4"]];
+const payValue = (o, k) => k === "capital" ? (o.amortization || 0) + (o.redemption || 0)
+  : k === "dividend" ? (o.dividend || 0) + (o.bonus || 0) : (o[k] || 0);
+const payKey = kind => kind === "amortization" || kind === "redemption" ? "capital" : kind === "bonus" ? "dividend" : kind;
 const FLAG = { opening: ["цена покупки ≈ стоимость на начало выписки", "остаток"],
   jessica: ["состав из Jessica, сделок ещё нет", "без сделок"],
   no_quote: ["нет котировки — показана себестоимость", "нет цены"],
@@ -185,9 +252,11 @@ function notices() {
 function render() {
   const view = document.getElementById("view");
   const r = state.report;
+  if (state.tab === "security") { renderSecurity(); return; }
   const pages = { overview, positions, income, structure, operations };
   view.innerHTML = notices() + (pages[state.tab] || overview)(r);
   if (state.tab === "overview" || state.tab === "income") drawIncome(r, state.tab === "overview" ? 18 : 0);
+  if (state.tab === "overview") bindComposition(r);
   if (state.tab === "operations") loadOps();
 }
 
@@ -199,30 +268,153 @@ function overview(r) {
   const s = r.summary, inc = r.income;
   const xirr = s.xirr == null ? "—" : pct(s.xirr * 100, true);
   return `<div class="grid tiles">
-    ${tile("Стоимость портфеля", rub(s.value), `в т. ч. НКД ${rub(s.accrued_now)} · бумаг ${s.positions}`, "hero")}
-    ${tile("Прибыль за всё время", `<span class="${cls(s.profit)}">${signed(s.profit)}</span>`, `доходность ${xirr} годовых (XIRR)`, "hero")}
-    ${tile("Курсовая разница", `<span class="${cls(s.unrealized)}">${signed(s.unrealized)}</span>`, `${pct(s.unrealized_pct, true)} к вложенным ${rub(s.cost)}`)}
-    ${tile("Купоны получено", rub(s.coupons), `за вычетом НКД, уплаченного при покупке: ${signed(s.coupons_net)}`)}
-    ${tile("Дивиденды и бонусы", rub(s.dividends + s.bonus), `дивиденды ${rub(s.dividends)} · бонусы ${rub(s.bonus)}`)}
-    ${tile("Ожидается за 12 мес.", rub(inc.expected_12m), `≈ ${rub(inc.expected_12m_monthly)} в месяц, до налога`)}
+    ${tile("Стоимость портфеля", rub(s.value), `в т. ч. НКД ${rub(s.accrued_now)} · бумаг ${s.positions}`, "hero glow")}
+    ${tile("Прибыль за всё время", `<span class="${cls(s.profit)}">${signed(s.profit)}</span>`,
+      `${s.day_change == null ? "" : `<span class="${cls(s.day_change)}">${signed(s.day_change, true)} (${pct(s.day_change_pct, true)})</span> за день<br>`}доходность ${xirr} годовых (XIRR)`, "hero")}
+    ${tile(`Доходность <span class="q" title="Прибыль за всё время ${signed(s.profit)} к пополнениям счетов ${rub(s.deposited)}">?</span>`,
+      s.return_pct == null ? "—" : `<span class="${cls(s.return_pct)}">${pct(s.return_pct, true)}</span>`,
+      `${pct(s.unrealized_pct, true)} <span class="hint" title="Только бумаги, которые сейчас в портфеле: текущая цена против средней цены покупки, без купонов, НКД и проданных бумаг. В рублях ${signed(s.unrealized)} к вложенным ${rub(s.cost)}.">рост активов</span>`)}
+    ${tile("Купонов получено", rub(s.coupons), `за вычетом НКД, уплаченного при покупке: ${signed(s.coupons_net)}`)}
+    ${tile("Дивидендов получено", rub(s.dividends))}
+    ${tile(`Пассивный доход <span class="q" title="Купоны и дивиденды, ожидаемые за 12 месяцев по текущему составу, до налога, к стоимости портфеля">?</span>`,
+      s.passive_pct == null ? "—" : pct(s.passive_pct), `${rub(inc.expected_12m)} в год · ≈ ${rub(inc.expected_12m_monthly)} в месяц`)}
     ${tile("Вернётся номинала за 12 мес.", rub(inc.capital_back_12m), "амортизации и погашения")}
     ${tile("Комиссии и налоги", `<span class="neg">${signed(-s.fees + s.taxes)}</span>`, `комиссии ${rub(s.fees)} · налоги ${rub(-s.taxes)}`)}
   </div>
+  <div class="card" style="margin-top:12px" id="comp">${composition(r)}</div>
   <div class="grid two" style="margin-top:12px">
     <div class="card"><h2>Доходы по месяцам</h2>${incomeLegend()}<div class="chart" id="incomeChart"></div></div>
     <div class="card"><h2>Ближайшие выплаты</h2>${upcomingList(r.upcoming.slice(0, 8))}</div>
   </div>
-  <div class="grid two" style="margin-top:12px">
-    <div class="card"><h2>Крупнейшие позиции</h2>${hbars(r.structure.position.slice(0, 10))}</div>
-    <div class="card"><h2>По видам бумаг</h2>${hbars(r.structure.kind)}</div>
-  </div>`;
+  ${movers(r)}
+  <div class="card" style="margin-top:12px"><h2>Крупные позиции</h2>${hbars(r.structure.position.slice(0, 10))}</div>`;
+}
+
+function movers(r) {
+  // Одна бумага на двух счетах — одной строкой: процент тот же, рубли складываются.
+  const by = {};
+  r.positions.filter(p => p.quantity > 0 && p.day_change != null).forEach(p => {
+    const m = by[p.isin] || (by[p.isin] = { isin: p.isin, name: p.name, value: 0, change: 0, pct: p.day_change_pct });
+    m.value += p.value_full; m.change += p.day_change;
+  });
+  const all = Object.values(by).filter(m => Math.abs(m.pct) >= 0.005);
+  if (!all.length) return "";
+  const list = (items, empty) => items.length ? items.map(m => `<div class="mover"><span>${secLink(m.isin, m.name)}</span>
+    <span class="r">${rub(m.value)}<br><span class="${cls(m.change)}">${pct(m.pct, true)} (${signed(m.change, true)})</span></span></div>`).join("")
+    : `<div class="empty">${empty}</div>`;
+  const up = all.filter(m => m.pct > 0).sort((a, b) => b.pct - a.pct).slice(0, 5);
+  const down = all.filter(m => m.pct < 0).sort((a, b) => a.pct - b.pct).slice(0, 5);
+  return `<div class="grid halves" style="margin-top:12px">
+    <div class="card"><h2>Топ роста за день</h2>${list(up, "Сегодня ничего не выросло")}</div>
+    <div class="card"><h2>Топ падений за день</h2>${list(down, "Сегодня ничего не упало")}</div></div>`;
+}
+
+const KIND_GROUPS = { bond: ["Облигации", "--s1"], fund: ["Фонды", "--s4"], share: ["Акции", "--s2"], other: ["Прочее", "--muted"] };
+
+function compGroups(r) {
+  // Одна бумага на двух счетах — один сектор.
+  const by = {};
+  r.positions.filter(p => p.quantity > 0).forEach(p => {
+    const g = by[p.isin] || (by[p.isin] = { key: p.isin, isin: p.isin, kind: p.kind in KIND_GROUPS ? p.kind : "other",
+      label: p.name, count: 0, value: 0, cost: 0, clean: 0 });
+    g.count += p.quantity; g.value += p.value_full; g.cost += p.cost; g.clean += p.value;
+  });
+  const secs = Object.values(by);
+  if (state.comp) return secs.filter(x => x.kind === state.comp).sort((a, b) => b.value - a.value);
+  const kinds = {};
+  secs.forEach(x => {
+    const g = kinds[x.kind] || (kinds[x.kind] = { key: x.kind, kind: x.kind, label: KIND_GROUPS[x.kind][0], count: 0, value: 0, cost: 0, clean: 0 });
+    g.count += 1; g.value += x.value; g.cost += x.cost; g.clean += x.clean;
+  });
+  return Object.values(kinds).sort((a, b) => b.value - a.value);
+}
+
+// Внутри группы у каждой бумаги свой цвет; восемь цветов по кругу, первый и последний сектор не совпадают.
+function compColor(x, i, n) {
+  if (!state.comp) return `var(${KIND_GROUPS[x.kind][1]})`;
+  const k = i % 8 === 0 && i === n - 1 && i ? 2 : i % 8;
+  return `var(--d${k})`;
+}
+
+function composition(r) {
+  const items = compGroups(r);
+  if (!items.length) return `<h2>Состав портфеля</h2><div class="empty">Позиций нет</div>`;
+  const total = items.reduce((a, x) => a + x.value, 0);
+  const all = r.summary.value;
+  const S = 240, R = 116, r0 = 76, c = S / 2;
+  const pt = (a, rad) => `${(c + rad * Math.sin(a)).toFixed(2)},${(c - rad * Math.cos(a)).toFixed(2)}`;
+  let a0 = 0, paths = "";
+  items.forEach((x, i) => {
+    const sweep = x.value / total * Math.PI * 2;
+    const a1 = a0 + sweep, large = sweep > Math.PI ? 1 : 0;
+    const d = items.length === 1
+      ? `M${pt(0, R)} A${R},${R} 0 1 1 ${pt(Math.PI * 1.9999, R)} L${pt(Math.PI * 1.9999, r0)} A${r0},${r0} 0 1 0 ${pt(0, r0)} Z`
+      : `M${pt(a0, R)} A${R},${R} 0 ${large} 1 ${pt(a1, R)} L${pt(a1, r0)} A${r0},${r0} 0 ${large} 0 ${pt(a0, r0)} Z`;
+    paths += `<path d="${d}" data-ci="${i}" fill="${compColor(x, i, items.length)}" stroke="var(--surface)" stroke-width="2"></path>`;
+    a0 = a1;
+  });
+  const title = state.comp ? KIND_GROUPS[state.comp][0] : "Состав портфеля";
+  const rows = items.map((x, i) => {
+    const income = x.clean - x.cost;
+    return `<tr data-ci="${i}"><td class="l name"><span class="sw" style="background:${compColor(x, i, items.length)}"></span>${state.comp ? secLink(x.isin, x.label) : esc(x.label)}
+        <div class="sub2" style="margin-left:14px">${state.comp ? nf.format(x.count) + " шт." : x.count + " " + plural(x.count, "бумага", "бумаги", "бумаг")}</div></td>
+      <td>${rub(x.value)}<div class="sub2">${rub(x.cost)}</div></td>
+      <td class="${cls(income)}">${signed(income)}<div class="${cls(income)}" style="font-size:12px">${x.cost ? pct(income / x.cost * 100, true) : "—"}</div></td>
+      <td>${pct(x.value / all * 100)}</td></tr>`;
+  }).join("");
+  return `<h2>${state.comp ? `<a class="back" data-comp="" style="margin:0 8px 0 0">← Назад</a>` : ""}${title}</h2>
+    <div class="comp">
+      <div class="donut" id="donut"><svg viewBox="0 0 ${S} ${S}" role="img" aria-label="${title}">${paths}</svg>
+        <div class="center"><b>${rub(total)}</b><span>${state.comp ? pct(total / all * 100) + " портфеля" : "всего"}</span></div>
+        <div class="tip"></div></div>
+      <div class="scroll" style="max-height:420px;overflow-y:auto"><table><thead><tr><th class="l">Название</th><th>Стоимость / вложено</th>
+        <th><span class="hint" title="Рост цены к средней цене покупки, без купонов и НКД">Доход</span></th><th>Доля</th></tr></thead><tbody>${rows}</tbody></table></div>
+    </div>
+    ${state.comp ? "" : `<p class="muted" style="font-size:12px;margin:10px 0 0">Нажми на сектор или строку, чтобы увидеть бумаги группы.</p>`}`;
+}
+
+function plural(n, one, few, many) {
+  const m10 = n % 10, m100 = n % 100;
+  return m10 === 1 && m100 !== 11 ? one : m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14) ? few : many;
+}
+
+function bindComposition(r) {
+  const host = document.getElementById("comp");
+  if (!host) return;
+  const items = compGroups(r), donut = host.querySelector("#donut"), tip = donut && donut.querySelector(".tip");
+  const total = items.reduce((a, x) => a + x.value, 0);
+  const light = i => {
+    donut.classList.toggle("hl", i != null);
+    host.querySelectorAll("[data-ci]").forEach(el => el.classList.toggle("on", i != null && +el.dataset.ci === i));
+  };
+  host.querySelectorAll("[data-ci]").forEach(el => {
+    const i = +el.dataset.ci;
+    el.addEventListener("mouseenter", () => light(i));
+    el.addEventListener("mouseleave", () => { light(null); tip.style.display = "none"; });
+    el.addEventListener("click", ev => {
+      if (ev.target.closest("a")) return;
+      if (!state.comp) { state.comp = items[i].kind; host.innerHTML = composition(r); bindComposition(r); }
+      else location.hash = "security/" + encodeURIComponent(items[i].isin);
+    });
+    if (el.tagName === "path") el.addEventListener("mousemove", ev => {
+      const x = items[i], box = donut.getBoundingClientRect();
+      tip.innerHTML = `<b>${esc(x.label)}</b><div class="row"><span>Стоимость</span><span>${rub(x.value)}</span></div>
+        <div class="row"><span>Доля</span><span>${pct(x.value / r.summary.value * 100)}</span></div>
+        ${state.comp ? `<div class="row"><span>в группе</span><span>${pct(x.value / total * 100)}</span></div>` : ""}`;
+      tip.style.display = "block";
+      tip.style.left = Math.min(ev.clientX - box.left + 12, box.width - tip.offsetWidth) + "px";
+      tip.style.top = (ev.clientY - box.top + 12) + "px";
+    });
+  });
+  const back = host.querySelector("[data-comp]");
+  if (back) back.addEventListener("click", () => { state.comp = null; host.innerHTML = composition(r); bindComposition(r); });
 }
 
 function upcomingList(events) {
   if (!events.length) return `<div class="empty">Выплат в ближайшие 90 дней нет<br>или график ещё не загружен</div>`;
   return `<table class="up"><tbody>${events.map(e => `<tr>
     <td class="l">${date(e.date)}</td>
-    <td class="l name">${esc(e.name)}<div class="isin">${KIND[e.kind] || e.kind}${e.estimated ? " · сумма оценочная" : ""}</div></td>
+    <td class="l name">${secLink(e.isin, e.name)}<div class="isin">${KIND[e.kind] || e.kind}${state.portfolio ? "" : " · " + esc(PF_TITLES[e.portfolio] || e.portfolio)}${e.estimated ? " · сумма оценочная" : ""}</div></td>
     <td>${rub(e.amount, true)}</td></tr>`).join("")}</tbody></table>`;
 }
 
@@ -257,7 +449,7 @@ function positions(r) {
     const price = p.price_pct != null ? nf2.format(p.price_pct) + " %" : rub(p.price, true);
     const avg = p.avg_price == null ? "—" : p.kind === "bond" && p.facevalue ? nf2.format(p.avg_price / p.facevalue * 100) + " %" : rub(p.avg_price, true);
     return `<tr>
-      <td class="name">${esc(p.name)}${pf}${flags}<div class="isin">${p.isin}${p.quote_date ? " · цена на " + date(p.quote_date) : ""}</div></td>
+      <td class="name">${secLink(p.isin, p.name)}${pf}${flags}<div class="isin">${p.isin}${p.quote_date ? " · цена на " + date(p.quote_date) : ""}</div></td>
       <td>${nf.format(p.quantity)}</td><td>${avg}</td><td>${price}</td>
       <td>${rub(p.value_full)}</td><td>${pct(p.share)}</td>
       <td class="${cls(p.unrealized)}">${signed(p.unrealized)}</td>
@@ -268,7 +460,7 @@ function positions(r) {
   };
   const closedTable = closed.length ? `<div class="card" style="margin-top:12px"><h2>Закрытые позиции</h2><div class="scroll"><table>
     <thead><tr><th class="l">Бумага</th><th>Реализовано</th><th>Купоны / див.</th><th>Прибыль</th></tr></thead><tbody>
-    ${closed.map(p => `<tr><td class="name">${esc(p.name)}<div class="isin">${p.isin}</div></td><td class="${cls(p.realized)}">${signed(p.realized)}</td>
+    ${closed.map(p => `<tr><td class="name">${secLink(p.isin, p.name)}<div class="isin">${p.isin}</div></td><td class="${cls(p.realized)}">${signed(p.realized)}</td>
       <td>${rub(p.coupons + p.dividends)}</td><td class="${cls(p.profit)}">${signed(p.profit)}</td></tr>`).join("")}
     </tbody></table></div></div>` : "";
   return `<div class="card"><div class="scroll"><table><thead><tr>${head}</tr></thead><tbody>
@@ -277,7 +469,7 @@ function positions(r) {
 }
 
 function incomeLegend() {
-  return `<div class="legend">${INCOME_SERIES.map(([, t, c]) => `<span><i style="background:var(${c})"></i>${t}</span>`).join("")}
+  return `<div class="legend">${PAY_SERIES.map(([, t, c]) => `<span><i style="background:var(${c})"></i>${t}</span>`).join("")}
     <span><i style="background:repeating-linear-gradient(45deg,var(--s1) 0 2px,transparent 2px 5px);border:1px solid var(--s1)"></i>ожидается</span></div>`;
 }
 
@@ -314,15 +506,15 @@ function drawIncome(r, lastN) {
     months = months.slice(Math.max(0, end - lastN), end);
   }
   if (!months.length) { host.innerHTML = `<div class="empty">Выплат пока нет</div>`; return; }
-  const kinds = INCOME_SERIES.map(s => s[0]);
-  const total = m => kinds.reduce((a, k) => a + (m.received[k] || 0) + (m.expected[k] || 0), 0);
+  const kinds = PAY_SERIES.map(s => s[0]);
+  const total = m => kinds.reduce((a, k) => a + payValue(m.received, k) + payValue(m.expected, k), 0);
   const max = Math.max(1, ...months.map(total));
   const step = niceStep(max / 4), top = Math.ceil(max / step) * step;
   const W = Math.max(560, host.clientWidth || 560), H = 240, L = 54, B = 26, T = 8;
   const plotW = W - L - 8, plotH = H - B - T, band = plotW / months.length, bw = Math.min(34, band * 0.62);
   const y = v => T + plotH - v / top * plotH;
   let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Доходы по месяцам"><defs>`;
-  INCOME_SERIES.forEach(([k, , c]) => {
+  PAY_SERIES.forEach(([k, , c]) => {
     svg += `<pattern id="h-${k}" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="5" height="5" fill="${css(c)}" opacity=".18"/><rect width="2" height="5" fill="${css(c)}"/></pattern>`;
   });
   svg += `</defs>`;
@@ -336,14 +528,14 @@ function drawIncome(r, lastN) {
     let base = 0;
     const segs = [];
     for (const part of ["received", "expected"]) for (const k of kinds) {
-      const v = m[part][k] || 0;
+      const v = payValue(m[part], k);
       if (v <= 0) continue;
       segs.push({ v, k, part });
     }
     segs.forEach((s, j) => {
       const y0 = y(base), y1 = y(base + s.v);
       const h = Math.max(1, y0 - y1 - (j < segs.length - 1 ? 2 : 0));
-      const fill = s.part === "expected" ? `url(#h-${s.k})` : css(INCOME_SERIES.find(x => x[0] === s.k)[2]);
+      const fill = s.part === "expected" ? `url(#h-${s.k})` : css(PAY_SERIES.find(x => x[0] === s.k)[2]);
       const last = j === segs.length - 1;
       svg += last && h > 4
         ? `<path d="${roundTop(x, y1, bw, h, 4)}" fill="${fill}"/>`
@@ -359,18 +551,20 @@ function drawIncome(r, lastN) {
   host.querySelectorAll(".hit").forEach(el => {
     el.addEventListener("mousemove", ev => {
       const m = months[+el.dataset.i];
-      const rows = INCOME_SERIES.map(([k, t]) => {
-        const got = m.received[k] || 0, exp = m.expected[k] || 0;
-        return got + exp ? `<div class="row"><span>${t}${exp && !got ? " (ожид.)" : ""}</span><span>${rub(got + exp, true)}</span></div>` : "";
+      const rows = PAY_SERIES.map(([k, t, c]) => {
+        const got = payValue(m.received, k), exp = payValue(m.expected, k);
+        return got + exp ? `<div class="row"><span><i style="background:var(${c})"></i>${t}${exp && !got ? " (ожид.)" : ""}</span><span>${rub(got + exp, true)}</span></div>` : "";
       }).join("");
-      const cap = (m.received.amortization || 0) + (m.received.redemption || 0) + (m.expected.amortization || 0) + (m.expected.redemption || 0);
-      tip.innerHTML = `<b>${monthLabel(m.month)}${m.estimated ? " · оценка" : ""}</b>${rows || '<div class="row"><span>выплат нет</span></div>'}` +
-        (cap ? `<div class="row"><span>возврат номинала</span><span>${rub(cap, true)}</span></div>` : "");
+      const color = kind => `var(${(PAY_SERIES.find(x => x[0] === payKey(kind)) || PAY_SERIES[0])[2]})`;
+      const shown = m.items.slice(0, 12);
+      const items = shown.length ? `<div class="items">${shown.map(x => `<div class="row"><span><i style="background:${color(x.kind)}"></i>${esc(x.name)}${x.expected ? " · ожид." : ""}</span><span>${rub(x.amount, true)}</span></div>`).join("")}
+        ${m.items.length > shown.length ? `<div class="row"><span>ещё ${m.items.length - shown.length}</span></div>` : ""}</div>` : "";
+      tip.innerHTML = `<b>${monthLabel(m.month)}: ${rub(total(m), true)}${m.estimated ? " · оценка" : ""}</b>${rows || '<div class="row"><span>выплат нет</span></div>'}${items}`;
       const box = host.getBoundingClientRect();
       tip.style.display = "block";
       const left = ev.clientX - box.left + 14;
       tip.style.left = Math.min(left, box.width - tip.offsetWidth - 4) + "px";
-      tip.style.top = Math.max(0, ev.clientY - box.top - 20) + "px";
+      tip.style.top = Math.max(0, Math.min(ev.clientY - box.top - 20, box.height - tip.offsetHeight)) + "px";
     });
     el.addEventListener("mouseleave", () => tip.style.display = "none");
   });
@@ -386,10 +580,155 @@ function niceStep(raw) {
 }
 function compact(v) { return v >= 1e6 ? nf2.format(v / 1e6) + " млн" : v >= 1e3 ? nf.format(v / 1e3) + " тыс" : nf.format(v); }
 
+async function renderSecurity() {
+  const view = document.getElementById("view");
+  if (!state.card || state.card.security.isin !== state.isin) {
+    view.innerHTML = `<div class="empty">Загрузка…</div>`;
+    const q = "?isin=" + encodeURIComponent(state.isin) + (state.portfolio ? "&portfolio=" + state.portfolio : "");
+    try { state.card = await api("/api/security" + q); }
+    catch (e) { view.innerHTML = `<a class="back" onclick="history.back()">← Назад</a><div class="notice">${esc(e.message)}</div>`; return; }
+  }
+  view.innerHTML = securityPage(state.card);
+  drawPrice(state.card);
+}
+
+function securityPage(c) {
+  const sec = c.security, q = c.quote, info = (q && q.info) || {}, bond = sec.kind === "bond";
+  const held = c.positions.filter(p => p.quantity > 0);
+  const qty = held.reduce((a, p) => a + p.quantity, 0), cost = held.reduce((a, p) => a + p.cost, 0);
+  const avg = qty ? cost / qty : null;
+  const face = sec.facevalue;
+  const asPct = v => bond && face ? nf2.format(v / face * 100) + " %" : rub(v, true);
+  const change = q && q.prev ? q.price - q.prev : null;
+  const annualCoupon = info.coupon_value && info.coupon_period ? info.coupon_value * 365 / info.coupon_period : null;
+  const row = (k, v) => v == null || v === "" ? "" : `<dt>${k}</dt><dd>${v}</dd>`;
+  const params = bond ? `<dl class="kv">
+      <h3>Общее</h3>
+      ${row("Номинал", face ? rub(face, true) : null)}
+      ${row("Погашение", sec.maturity ? date(sec.maturity) : null)}
+      ${row("Оферта", info.offer_date ? date(info.offer_date) : null)}
+      ${row("Купон", info.coupon_value ? `${rub(info.coupon_value, true)} раз в ${info.coupon_period} дн.` : null)}
+      ${row("Следующий купон", info.next_coupon ? date(info.next_coupon) : null)}
+      ${row("Дюрация", info.duration_days ? nf2.format(info.duration_days / 365) + " г." : null)}
+      ${row("Уровень листинга", info.list_level)}
+      <h3>Доходность</h3>
+      ${row(`<span class="hint" title="Ставка купона к номиналу">Купонная</span>`, info.coupon_pct != null ? pct(info.coupon_pct) : null)}
+      ${row(`<span class="hint" title="Купоны за год к текущей чистой цене">Текущая</span>`, annualCoupon && q ? pct(annualCoupon / q.price * 100) : null)}
+      ${row(`<span class="hint" title="Доходность к погашению (или к оферте) по расчёту биржи">К погашению</span>`, info.ytm != null ? pct(info.ytm) : null)}
+      ${row(`<span class="hint" title="Купоны за год к твоей средней цене покупки">К средней цене</span>`, annualCoupon && avg ? pct(annualCoupon / avg * 100) : null)}
+    </dl>` : `<dl class="kv"><h3>Общее</h3>${row("Эмитент", esc(sec.issuer))}${row("Вид", sec.kind === "fund" ? "фонд" : "акция")}</dl>`;
+  const mine = c.positions.map(p => `<div class="card" style="margin-top:12px">
+      <h2>${esc(c.portfolios[p.portfolio] || p.portfolio)}${p.quantity > 0 ? "" : " · позиция закрыта"}</h2>
+      <div class="cols3">
+        <dl class="kv"><h3>Общее</h3>
+          ${row("Количество", nf.format(p.quantity) + " шт.")}${row("Текущая стоимость", p.quantity > 0 ? rub(p.value_full, true) : null)}
+          ${row("Средняя цена", p.avg_price != null ? asPct(p.avg_price) : null)}${row("Вложено", p.quantity > 0 ? rub(p.cost, true) : null)}
+          ${row("Доля в портфеле", p.quantity > 0 ? pct(p.share) : null)}</dl>
+        <dl class="kv"><h3>${bond ? "Купоны" : "Дивиденды"}</h3>
+          ${row("За будущие 12 мес.", rub(p.expected_12m, true))}
+          ${bond ? row("Вернётся номинала", p.capital_back_12m ? rub(p.capital_back_12m, true) : null) : ""}
+          ${row("Получено выплат", rub(p.coupons + p.dividends, true))}
+          ${bond ? row("НКД уплачено при покупке", rub(p.accrued_paid, true)) : ""}</dl>
+        <dl class="kv"><h3>Прибыль</h3>
+          ${row("Прибыль", `<span class="${cls(p.profit)}">${signed(p.profit, true)} (${pct(p.profit_pct, true)})</span>`)}
+          ${row("Рост цены", p.quantity > 0 ? `<span class="${cls(p.unrealized)}">${signed(p.unrealized, true)}</span>` : null)}
+          ${row("Реализовано", p.realized ? `<span class="${cls(p.realized)}">${signed(p.realized, true)}</span>` : null)}
+          ${row("Комиссии", p.fees ? signed(-p.fees, true) : null)}</dl>
+      </div></div>`).join("");
+  const ops = c.operations.length ? `<div class="scroll"><table><thead><tr><th class="l">Дата</th><th class="l">Операция</th>
+      ${state.portfolio ? "" : '<th class="l">Счёт</th>'}<th>Кол-во</th><th>Цена</th><th>НКД</th><th>Комиссия</th><th>Сумма</th></tr></thead><tbody>
+      ${c.operations.map(o => `<tr><td class="l">${date(o.date)}</td><td class="l">${KIND[o.kind] || o.kind}</td>
+        ${state.portfolio ? "" : `<td class="l">${esc(c.portfolios[o.portfolio] || o.portfolio)}</td>`}
+        <td>${o.quantity ? nf.format(o.quantity) : ""}</td>
+        <td>${o.quantity ? asPct((Math.abs(o.amount) - o.accrued) / o.quantity) : ""}</td>
+        <td>${o.accrued ? rub(o.accrued, true) : ""}</td><td>${o.fee ? rub(o.fee, true) : ""}</td>
+        <td class="${cls(o.amount)}">${o.amount ? signed(o.amount, true) : ""}</td></tr>`).join("")}
+      </tbody></table></div>` : `<div class="empty">Операций нет</div>`;
+  return `<a class="back" onclick="history.back()">← Назад</a>
+  <div class="card"><div class="sechead">
+    <div><h1>${esc(sec.name)}</h1><div class="muted">${sec.isin}${sec.secid && sec.secid !== sec.isin ? " · " + esc(sec.secid) : ""}${sec.issuer ? " · " + esc(sec.issuer) : ""}</div>
+      <div style="margin-top:8px"><span class="big">${q ? rub(q.price, true) : "—"}</span>
+        ${q && bond && face ? `<span class="muted"> / ${nf2.format(q.price / face * 100)} %</span>` : ""}
+        ${change != null ? ` <span class="${cls(change)}">${signed(change, true)} (${pct(change / q.prev * 100, true)})</span> <span class="muted">за день</span>` : ""}</div>
+      ${q ? `<div class="muted" style="font-size:12px">цена на ${date(q.date)}</div>` : ""}</div>
+    ${bond && q ? `<div style="text-align:right"><div class="muted">НКД</div><div style="font-size:18px">${rub(q.accrued, true)}</div></div>` : ""}
+  </div></div>
+  <div class="grid two" style="margin-top:12px">
+    <div class="card"><h2>История цены${bond ? ", % от номинала" : ", ₽"}</h2>
+      <div class="ranges">${[[30, "1м"], [91, "3м"], [182, "6м"], [365, "1г"]].map(([d, t]) => `<button data-range="${d}" class="${state.range === d ? "on" : ""}">${t}</button>`).join("")}</div>
+      <div class="chart" id="priceChart"></div></div>
+    <div class="card">${params}</div>
+  </div>
+  ${c.positions.length ? `<h2 style="margin:18px 0 0;font-size:16px">В моих портфелях</h2>${mine}` : ""}
+  <div class="grid two" style="margin-top:12px">
+    <div class="card"><h2>Сделки и начисления</h2>${ops}</div>
+    <div class="card"><h2>Ближайшие выплаты</h2>${upcomingList(c.upcoming.slice(0, 12))}</div>
+  </div>`;
+}
+
+function drawPrice(c) {
+  const host = document.getElementById("priceChart");
+  if (!host) return;
+  if (!c.history) { host.innerHTML = `<div class="empty">История цены недоступна: ${esc(c.history_error || "")}</div>`; return; }
+  const last = c.history.length ? c.history[c.history.length - 1].date : "";
+  const since = new Date(new Date(last) - state.range * 864e5).toISOString().slice(0, 10);
+  const pts = c.history.filter(p => p.date >= since);
+  if (pts.length < 2) { host.innerHTML = `<div class="empty">Мало сделок за период</div>`; return; }
+  const sec = c.security, bond = sec.kind === "bond", face = sec.facevalue;
+  const held = c.positions.filter(p => p.quantity > 0);
+  const qty = held.reduce((a, p) => a + p.quantity, 0);
+  let avg = qty ? held.reduce((a, p) => a + p.cost, 0) / qty : null;
+  if (avg != null && bond && face) avg = avg / face * 100;
+  const fmt = v => bond ? nf2.format(v) + " %" : rub(v, true);
+  const vals = pts.map(p => p.price).concat(avg != null ? [avg] : []);
+  let lo = Math.min(...vals), hi = Math.max(...vals);
+  const pad = (hi - lo) * 0.08 || 1; lo -= pad; hi += pad;
+  const W = Math.max(480, host.clientWidth || 480), H = 260, L = 56, B = 24, T = 10, R = 8;
+  const x = i => L + i / (pts.length - 1) * (W - L - R), y = v => T + (hi - v) / (hi - lo) * (H - T - B);
+  const step = niceStep((hi - lo) / 4);
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="История цены">`;
+  for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) {
+    svg += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="${css("--line")}"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${bond ? nf2.format(v) : compact(v)}</text>`;
+  }
+  const line = pts.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(p.price).toFixed(1)}`).join(" ");
+  svg += `<path d="${line} L${x(pts.length - 1)},${H - B} L${L},${H - B} Z" fill="${css("--s1")}" opacity=".08"/>`;
+  svg += `<path d="${line}" fill="none" stroke="${css("--s1")}" stroke-width="2" stroke-linejoin="round"/>`;
+  if (avg != null) svg += `<line x1="${L}" x2="${W - R}" y1="${y(avg)}" y2="${y(avg)}" stroke="${css("--text-2")}" stroke-dasharray="4 4"/>
+    <text x="${L + 6}" y="${y(avg) - 6}" style="fill:${css("--text-2")}">средняя покупки: ${fmt(avg)}</text>`;
+  const ticks = 5;
+  for (let k = 0; k < ticks; k++) {
+    const i = Math.round(k / (ticks - 1) * (pts.length - 1));
+    svg += `<text x="${x(i)}" y="${H - 6}" text-anchor="${k === 0 ? "start" : k === ticks - 1 ? "end" : "middle"}">${date(pts[i].date).slice(0, 5)}.${pts[i].date.slice(2, 4)}</text>`;
+  }
+  svg += `<line class="cross" x1="0" x2="0" y1="${T}" y2="${H - B}" stroke="${css("--muted")}" visibility="hidden"/>
+    <circle class="dot" r="4" fill="${css("--s1")}" stroke="${css("--surface")}" stroke-width="2" visibility="hidden"/>
+    <rect class="hit" x="${L}" y="${T}" width="${W - L - R}" height="${H - T - B}" fill="transparent"/></svg>`;
+  host.innerHTML = svg + `<div class="tip"></div>`;
+  const tip = host.querySelector(".tip"), cross = host.querySelector(".cross"), dot = host.querySelector(".dot");
+  const svgEl = host.querySelector("svg");
+  host.querySelector(".hit").addEventListener("mousemove", ev => {
+    const box = svgEl.getBoundingClientRect(), scale = W / box.width;
+    const i = Math.max(0, Math.min(pts.length - 1, Math.round(((ev.clientX - box.left) * scale - L) / (W - L - R) * (pts.length - 1))));
+    const p = pts[i];
+    cross.setAttribute("x1", x(i)); cross.setAttribute("x2", x(i)); cross.setAttribute("visibility", "visible");
+    dot.setAttribute("cx", x(i)); dot.setAttribute("cy", y(p.price)); dot.setAttribute("visibility", "visible");
+    tip.innerHTML = `<b>${date(p.date)}</b><div class="row"><span>Цена</span><span>${fmt(p.price)}</span></div>` +
+      (avg != null ? `<div class="row"><span>к средней</span><span class="${cls(p.price - avg)}">${pct((p.price / avg - 1) * 100, true)}</span></div>` : "");
+    tip.style.display = "block";
+    const left = x(i) / scale + 12;
+    tip.style.left = Math.min(left, box.width - tip.offsetWidth - 4) + "px";
+    tip.style.top = Math.max(0, y(p.price) / scale - 50) + "px";
+  });
+  host.querySelector(".hit").addEventListener("mouseleave", () => { tip.style.display = "none"; cross.setAttribute("visibility", "hidden"); dot.setAttribute("visibility", "hidden"); });
+}
+
 function structure(r) {
   const s = r.structure;
   return `<div class="grid two">
-    <div class="card"><h2>По эмитентам</h2>${hbars(s.issuer)}</div>
+    <div class="card"><h2 style="display:flex;align-items:center;gap:10px">Состав
+      <span class="seg">${[["issuer", "по эмитентам"], ["sector", "по отрасли"]].map(([k, t]) =>
+        `<button data-by="${k}" class="${state.structBy === k ? "on" : ""}">${t}</button>`).join("")}</span></h2>
+      ${hbars(s[state.structBy])}</div>
     <div class="grid" style="align-content:start">
       <div class="card"><h2>По видам бумаг</h2>${hbars(s.kind)}</div>
       ${state.portfolio ? "" : `<div class="card"><h2>По брокерам</h2>${hbars(s.portfolio)}</div>`}
@@ -458,11 +797,18 @@ async function pollSync() {
 
 document.addEventListener("click", async ev => {
   const t = ev.target;
-  if (t.dataset.pf !== undefined) { state.portfolio = t.dataset.pf; localSet("pf", state.portfolio); load(); }
+  if (t.dataset.pf !== undefined) { state.portfolio = t.dataset.pf; localSet("pf", state.portfolio); state.card = null; load(); }
   else if (t.id === "syncBtn") {
     t.disabled = true; t.textContent = "Обновляю…";
     await api("/api/sync", { method: "POST" });
     pollSync();
+  } else if (t.dataset.by) {
+    state.structBy = t.dataset.by;
+    render();
+  } else if (t.dataset.range) {
+    state.range = +t.dataset.range;
+    document.querySelectorAll("[data-range]").forEach(b => b.classList.toggle("on", b === t));
+    drawPrice(state.card);
   } else if (t.dataset.sort) {
     const k = t.dataset.sort;
     state.sort = { key: k, dir: state.sort.key === k ? -state.sort.dir : (k === "name" ? 1 : -1) };
@@ -483,10 +829,28 @@ document.addEventListener("submit", async ev => {
     load();
   } catch (e) { alert(e.message); }
 });
-window.addEventListener("hashchange", () => { state.tab = location.hash.slice(1) || "overview"; renderHeader(); render(); });
+window.addEventListener("hashchange", () => { route(); state.card = null; renderHeader(); render(); window.scrollTo(0, 0); });
 let resizeTimer;
 window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (state.report) render(); }, 150); });
 load().catch(e => { document.getElementById("view").innerHTML = `<div class="notice">Сервер не отвечает: ${esc(e.message)}</div>`; });
+
+// Пояснения у «?», пунктирных подписей и меток — сразу при наведении: системный title ждёт около секунды.
+const hoverTip = document.body.appendChild(Object.assign(document.createElement("div"), {className: "hovertip"}));
+const TIP_SEL = ".q[title], .hint[title], .tag[title], [data-tip]";
+document.addEventListener("mouseover", e => {
+  const el = e.target.closest(TIP_SEL);
+  if (!el) return;
+  if (el.title) { el.dataset.tip = el.title; el.removeAttribute("title"); }
+  hoverTip.textContent = el.dataset.tip;
+  hoverTip.style.display = "block";
+  const box = el.getBoundingClientRect(), w = hoverTip.offsetWidth, h = hoverTip.offsetHeight;
+  hoverTip.style.left = Math.max(8, Math.min(box.left, innerWidth - w - 8)) + "px";
+  hoverTip.style.top = (box.bottom + 6 + h > innerHeight ? box.top - h - 6 : box.bottom + 6) + "px";
+});
+document.addEventListener("mouseout", e => {
+  if (e.target.closest(TIP_SEL) && !e.target.closest(TIP_SEL).contains(e.relatedTarget)) hoverTip.style.display = "none";
+});
+addEventListener("scroll", () => { hoverTip.style.display = "none"; }, true);
 </script>
 </body>
 </html>

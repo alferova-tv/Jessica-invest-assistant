@@ -17,7 +17,7 @@ class ModelTest(unittest.TestCase):
         os.environ["JESSICA_HOME"] = self.tmp.name  # без holdings.json — сверка пустая
         self.conn = db.connect(Path(self.tmp.name) / "t.db")
         db.upsert_security(self.conn, {"isin": "RU000A000001", "name": "Бумага", "kind": "bond", "facevalue": 1000})
-        self.conn.execute("INSERT INTO quotes VALUES ('RU000A000001', 990, 5, '2026-10-01', 'test')")
+        self.conn.execute("INSERT INTO quotes (isin, price, accrued, date, source) VALUES ('RU000A000001', 990, 5, '2026-10-01', 'test')")
 
     def tearDown(self):
         self.conn.close()
