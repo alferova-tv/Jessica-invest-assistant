@@ -24,7 +24,7 @@ import statistics
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
-from disclosure import _same  # noqa: E402 — то же сопоставление имён, что для сообщений
+from day_zero import _normalize, _same_company  # noqa: E402 — то же сопоставление имён smart-lab, что в day_zero.py
 
 DATA = pathlib.Path.home() / "Documents/Tracking/Invest/research"
 RAW, OUT = DATA / "raw", DATA / "out"
@@ -34,13 +34,6 @@ PERIOD_START = "2014-01-01"
 def _read(name: str) -> list[dict]:
     with (OUT / name).open() as fh:
         return list(csv.DictReader(fh))
-
-
-def _normalize(name: str) -> str:
-    """То же сопоставление имён, что в day_zero.py."""
-    name = re.sub(r"\b(ООО|АО|ПАО|НАО|ОАО|ЗАО|ИП|Общество с ограниченной ответственностью"
-                  r"|Акционерное общество|Публичное акционерное общество)\b", " ", name, flags=re.I)
-    return re.sub(r"[^а-яёa-z0-9]+", "", name.lower())
 
 
 def _universe() -> dict[str, dict]:
@@ -78,8 +71,8 @@ def main() -> None:
     print(f"\n== smart-lab: {len(smartlab)} записей с 2014 года")
     unmatched, agree, differ = [], 0, []
     for record in smartlab:
-        name = record["company"].lstrip(".… ")
-        hits = [row for row in days if _same(row["emitent_title"], name)]
+        key = _normalize(record["company"])
+        hits = [row for row in days if _same_company(key, _normalize(row["emitent_title"]))]
         if not hits:
             unmatched.append(record)
             continue

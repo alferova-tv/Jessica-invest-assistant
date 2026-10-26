@@ -17,6 +17,7 @@ e-disclosure закрыт антиботом, иногда с капчей. Ка
     .venv/bin/python research/scripts/disclosure.py cures        # даты выплат и k → cures.csv
     .venv/bin/python research/scripts/disclosure.py restruct-list  # решения ОСВО, новации, списания субордов
     .venv/bin/python research/scripts/disclosure.py restruct-texts # их тексты
+    .venv/bin/python research/scripts/disclosure.py restruct       # разбор → restruct_decisions.csv, сверка ручной таблицы
 """
 
 from __future__ import annotations
@@ -182,6 +183,158 @@ def cmd_restruct_texts(limit: str = "") -> None:
     _download([m["pseudoGUID"] for m in _restruct_messages()], limit)
 
 
+# Что меняет решение собрания. Категории — подсказка для ручной проверки,
+# а не определение реструктуризации: «срок погашения в N-й день» стоит
+# и в технических поправках, где срок не менялся (Мечел, Вейл Финанс 2016).
+RESTRUCT_CATS = [
+    ("срок", r"срок\w* погашени|дат\w* погашени|увелич\w*[^.]{0,40}срок|продлени|перенос\w*[^.]{0,30}(срок|дат)"
+             r"|\d+[^.]{0,20}день с даты начала размещения[^.]{0,80}(заменить|изложить|новой редакции)"),
+    ("амортизация", r"амортизац|частичн\w* погашени|погашени\w* частями"),
+    ("купон", r"процентн\w* ставк|размер\w* (купон|процент)|купонн\w* доход|ставк\w* купон|порядок определения процентной"),
+    ("оферта", r"приобретени\w* облигаций|оферт|требовать приобретения"),
+    ("отказ от досрочного", r"(отказ|не требовать|не предъявл|не реализовывать|не осуществлять)\w*[^.]{0,160}досрочн"),
+    ("новация/отступное", r"новац|отступн"),
+    ("обеспечение", r"обеспечени|поручител|залог"),
+]
+# Собрание не состоялось: нет кворума, пришло меньше голосов, чем нужно,
+# или все решения «не приняты». Часть сообщений не пишет «не принято»,
+# поэтому голоса сверяются по числам.
+NO_QUORUM = re.compile(r"(не имело|отсутств\w*|нет) кворум|кворум\w* (не|отсутств)|не состоял|несостоявш"
+                       r"|не правомочн|неправомочн", re.I)
+REGNUMBER = re.compile(r"\b4[BВ]0\d-\d{2}-\d{5}-[A-ZА-Я](?:-\d{3}[PР])?\b")
+# Переход 16 недель перед событием: решения ближе уже размечены событием.
+RESTRUCT_GAP = 112
+
+
+def _number(text: str) -> int:
+    return int(re.sub(r"\D", "", text) or 0)
+
+
+def _restruct_row(msg: dict, by_key: dict[str, dict]) -> dict:
+    """Решение одного сообщения: эмитент, состоялось ли собрание, что меняли."""
+    text = _text(RAW / "events" / f"{msg['pseudoGUID']}.html")
+    start = text.find("2. Содержание")
+    head, body = (text[:start], text[start:]) if start >= 0 else (text, text)
+    body = body[: body.find("3. Подпись")] if "3. Подпись" in body else body
+    part, failed, decisions = body, False, []
+    if msg["type"] == 253:
+        # 2.3 — повестка, 2.4 — формулировки решений, 2.5 — дальше реквизиты.
+        lo, hi = body.find("2.3"), body.find("2.5")
+        part = body[lo:hi] if 0 <= lo < hi else body
+        results = part[part.find("2.4"):] if "2.4" in part else part
+        decisions = [
+            re.split(r"\n(?:Вопрос|\d+\.\s|2\.\d|Число голосов|Итоги голосования)", chunk, maxsplit=1)[0].strip()
+            for chunk in re.split(r"Формулировк\w* решени\w*[^:]{0,80}:?", part)[1:]]
+        taken = [d for d in decisions if not re.search(r"не принят|не состоял", d, re.I)]
+        need = [_number(x) for x in re.findall(r"необходимо для принятия решени[^:]{0,120}?:?\s*([\d\s]{1,20}\d)", part, re.I)]
+        came = [_number(x) for x in re.findall(r"(?:принявшие|принявших) участие[^:]{0,120}?:?\s*([\d\s]{1,20}\d)", part, re.I)]
+        short = bool(need and came) and all(c < n for c, n in zip(came, need))
+        not_taken = bool(re.search(r"не принят", results, re.I))
+        failed = bool(NO_QUORUM.search(part)) or short or (not_taken and not taken)
+    cats = [name for name, rx in RESTRUCT_CATS if re.search(rx, part, re.I)]
+    if msg["type"] == 311 and "новация/отступное" not in cats:
+        cats.append("новация/отступное")
+    # Под типом 338 бывает и обычное извещение о выплате купона (ТД РКС, 20.02.2024).
+    if msg["type"] in (338, 339) and not re.search(r"прекращени\w* обязательств|отказ\w*[^.]{0,40}уплат", part, re.I):
+        cats = []
+    isins = sorted(set(re.findall(r"\bRU\d{3}[A-Z0-9]{6}\d\b", body)))
+    regs = sorted({x.replace(" ", "").upper().translate(str.maketrans("ВНР", "BHP")) for x in REGNUMBER.findall(body)})
+    inn = re.search(r"ИНН[^\d]{0,40}(\d{10})\b", head)
+    hit = (next((by_key[x] for x in isins + regs if x in by_key), None)
+           or (by_key.get(inn.group(1)) if inn else None))
+    low = part.lower()
+    if (msg["type"] == 253 and "акционер" in low
+            and not re.search(r"владельц\w* (биржевых )?облигаций|новац", low + msg["companyName"].lower())):
+        kind = "не ОСВО"
+    elif failed:
+        kind = "не состоялось / не принято"
+    elif cats:
+        kind = "изменение условий"
+    elif re.search(r"изменени\w* в (решени|услови|эмиссионн)", low):
+        kind = "изменения без описания"
+    elif "представител" in low:
+        kind = "только представитель"
+    else:
+        kind = "прочее"
+    return {
+        "date": msg["eventDate"][:10], "type": msg["type"], "company": msg["companyName"],
+        "inn": inn.group(1) if inn else "", "emitent_id": str(hit["emitent_id"]) if hit else "",
+        "emitent_title": hit["emitent_title"] if hit else "", "isins": " ".join(isins),
+        "kind": kind, "cats": "; ".join(cats), "decisions": len(decisions),
+        "url": f"{SITE}/portal/event.aspx?EventId={msg['pseudoGUID']}",
+    }
+
+
+def _event_dates() -> dict[str, str]:
+    """Самая ранняя дата события эмитента по ИНН: неплатёж, первый техдефолт,
+    перевод в «Д», кредитный техдефолт вне «Д»."""
+    with (OUT / "events_issuers.csv").open() as fh:
+        inns = {row["emitent_id"]: row["emitent_inn"] for row in csv.DictReader(fh)}
+    found: dict[str, str] = {}
+
+    def add(inn: str, *days: str) -> None:
+        days = [d for d in days if d]
+        if inn and days:
+            found[inn] = min([found.get(inn, "9999-12-31"), *days])
+
+    with (OUT / "day_zero.csv").open() as fh:
+        for row in csv.DictReader(fh):
+            add(inns.get(row["emitent_id"], ""), row["day_zero"], row["tech_first"], row["transfer_date"])
+    with (OUT / "techdefault_events.csv").open() as fh:
+        for row in csv.DictReader(fh):
+            if row["cause_class"] == "кредитная":
+                add(row["inn"], row["tech_first"])
+    return found
+
+
+def cmd_restruct() -> None:
+    """Решения собраний → restruct_decisions.csv; сверка manual_restructuring.csv с событиями.
+
+    Какие решения — реструктуризация, решает человек (`manual_restructuring.csv`).
+    Эта команда даёт ему кандидатов и проверяет, что ни одно решение
+    из ручной таблицы не попало в 16 недель перед событием эмитента:
+    события добавляются (Вейл Финанс и Стройжилинвест нашлись 2026-10-21),
+    и решение, бывшее реструктуризацией без дефолта, становится его частью.
+    """
+    by_key: dict[str, dict] = {}
+    for row in _securities():
+        if not row["emitent_id"]:
+            continue
+        for key in (row["isin"], (row["regnumber"] or "").replace(" ", "").upper(), row["emitent_inn"]):
+            if key:
+                by_key.setdefault(key, row)
+    rows = [_restruct_row(msg, by_key) for msg in _restruct_messages()
+            if (RAW / "events" / f"{msg['pseudoGUID']}.html").exists()]
+    rows.sort(key=lambda r: (r["emitent_id"] or r["company"], r["date"]))
+    with (OUT / "restruct_decisions.csv").open("w", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
+    kinds: dict[str, int] = {}
+    for row in rows:
+        kinds[row["kind"]] = kinds.get(row["kind"], 0) + 1
+    changes = [r for r in rows if r["kind"] in ("изменение условий", "изменения без описания")]
+    print(f"сообщений: {len(rows)}, без эмитента {sum(not r['emitent_id'] for r in rows)}; "
+          + ", ".join(f"{k} {v}" for k, v in kinds.items()))
+    print(f"эмитентов с решениями об условиях: {len({r['emitent_id'] or r['company'] for r in changes})}")
+
+    path = pathlib.Path(__file__).resolve().parents[1] / "manual" / "manual_restructuring.csv"
+    with path.open() as fh:
+        manual = list(csv.DictReader(fh))
+    events = _event_dates()
+    late = []
+    for row in manual:
+        event = events.get(row["inn"])
+        if event and (dt.date.fromisoformat(event) - dt.date.fromisoformat(row["decision_date"])).days <= RESTRUCT_GAP:
+            late.append(f"  {row['emitent_title']} {row['decision_date']}: событие {event}")
+    known = {r["date"] for r in changes}
+    unknown = [f"  {r['emitent_title']} {r['decision_date']}" for r in manual if r["decision_date"] not in known]
+    print(f"manual_restructuring: {len(manual)} решений у {len({r['emitent_id'] for r in manual})} эмитентов")
+    print(f"ближе 16 недель к событию или после него, убрать: {len(late)}", *late, sep="\n")
+    if unknown:
+        print(f"нет среди решений об условиях: {len(unknown)}", *unknown, sep="\n")
+
+
 # --- сопоставление с эмитентами исследования ---------------------------------
 
 FORMS = (r"\b(ООО|АО|ПАО|НАО|ОАО|ЗАО|МФК|КБ|АКБ|Общество с ограниченной ответственностью"
@@ -244,11 +397,13 @@ def _same(ours: str, theirs: str) -> bool:
     return len(tail) >= 3 and tail not in GENERIC and tail == _tail(theirs)
 
 
-def _matches(issuer: dict, messages: list[dict]) -> list[dict]:
+def _matches(issuer: dict, messages: list[dict], cid_inn: dict[int, str]) -> list[dict]:
     """Сообщения эмитента в окне вокруг перевода в «Д».
 
-    В выдаче поиска нет ИНН, только краткое имя, поэтому кандидаты
-    подбираются по имени, а ИНН сверяется потом по тексту сообщения.
+    В выдаче поиска нет ИНН, только краткое имя, поэтому компания
+    узнаётся по ИНН из `_cid_inns`, а если его нет — по имени. По имени
+    сходятся не все: Резервная трастовая компания записана как «АО "РТК"».
+    ИНН сверяется потом по тексту сообщения.
     """
     transfer = dt.date.fromisoformat(issuer["transfer_date"])
     lo = transfer - dt.timedelta(days=WINDOW_BEFORE)
@@ -256,16 +411,17 @@ def _matches(issuer: dict, messages: list[dict]) -> list[dict]:
     return [
         msg for msg in messages
         if lo <= dt.date.fromisoformat(msg["eventDate"][:10]) <= hi
-        and _same(issuer["emitent_title"], msg["companyName"])
+        and (cid_inn.get(msg["companyID"]) == issuer["inn"]
+             or _same(issuer["emitent_title"], msg["companyName"]))
     ]
 
 
 def cmd_texts(limit: str = "") -> None:
     """Тексты сообщений наших эмитентов; уже скачанные не трогает."""
-    messages = _messages()
+    messages, cid_inn = _messages(), _cid_inns()
     todo = []
     for issuer in _issuers():
-        todo += [m["pseudoGUID"] for m in _matches(issuer, messages)]
+        todo += [m["pseudoGUID"] for m in _matches(issuer, messages, cid_inn)]
     _download(todo, limit)
 
 
@@ -333,6 +489,10 @@ def _after(text: str, label: str) -> str:
     line = match.group(0)
     tail = line.split(":", 1)[1] if ":" in line else line
     rest = re.split(r"\n\s*\d\.\d+\.?\s", text[match.end():], maxsplit=1)[0]
+    # «Дата начала купонного периода: 19.12.2024. Дата окончания …: 20.03.2025»
+    # (Строй Система Механизация): плановая дата — окончание, а не начало.
+    start = r"дата начала[^:\n]{0,40}:\s*(?:" + ANY_DATE + ")"
+    tail, rest = (re.sub(start, " ", part, flags=re.I) for part in (tail, rest))
     return _first_date(tail) or _first_date(rest[:600])
 
 
@@ -462,12 +622,12 @@ def _summary(issuer: dict, own: list[dict]) -> dict:
 
 
 def cmd_parse() -> None:
-    messages = _messages()
+    messages, cid_inn = _messages(), _cid_inns()
     rows, summary = [], []
     foreign = 0
     for issuer in _issuers():
         own = []
-        for msg in _matches(issuer, messages):
+        for msg in _matches(issuer, messages, cid_inn):
             path = RAW / "events" / f"{msg['pseudoGUID']}.html"
             if not path.exists():
                 continue
@@ -499,7 +659,7 @@ def cmd_parse() -> None:
 
 # --- техдефолты вне режима «Д» ------------------------------------------------
 #
-# Решение владелицы 2026-09-26: выборка расширяется эмитентами, у которых
+# Решение автора 2026-09-26: выборка расширяется эмитентами, у которых
 # был неплатёж, но биржа в «Д» их не переводила (техдефолт погашен или
 # дефолт не дошёл до перевода). Для них известен только первый неплатёж —
 # это второе целевое событие исследования («первый техдефолт»).
@@ -513,15 +673,26 @@ SANCTIONS = re.compile(
     r"|иностранн\w* (?:держател|депозитари|платёжн|платежн)|блокир\w* (?:средств|платеж)",
     re.I,
 )
-# Причина неплатежа (пункт «Причина неисполнения»). Техническая — деньги
-# были, но не дошли: держатели не дали реквизиты (Акрон, Транснефть),
-# ошибка в платёжке (КЛВЗ Кристалл), банк-корреспондент, НРД. Такой
-# неплатёж не кредитное событие. Арест счетов — кредитное: платить нечем.
+# Причина неплатежа (пункт «Причина неисполнения»). Заявленная техническая —
+# ошибка в платёжке (КЛВЗ Кристалл), обработка в банке (Самолёт, Брусника),
+# банк-корреспондент. Проверить её по тексту нельзя, а у Еврофинансов
+# и ФСИ «технические сложности» 06.05.2020 закончились дефолтом в октябре,
+# поэтому с 26.10.2026 такой неплатёж — событие с пометкой причины
+# (решение автора). Арест счетов — кредитное: платить нечем.
 TECHNICAL = re.compile(
     r"техническ\w* (?:ошибк|причин|сложност|механизм|особенност|сбо|проблем)|неявк\w* владельц|реквизит"
     r"|информаци\w* о (?:лицах|владельц)|списк\w* владельцев|обработк\w* банком|корреспондент"
     r"|операционн\w* риск|поступил\w* на счет депозитария на след"
     r"|техническ\w* задержк|акцепт\w* специализированн\w* депозитари",
+    re.I,
+)
+# Неплатёж держателям: эмитент заплатил, но часть денег не дошла до
+# держателей без реквизитов или данных в реестре (Мечел 2017 — 169 руб.,
+# Акрон, Транснефть), или потерялись копейки при округлении (Локосервис).
+# О деньгах эмитента это ничего не говорит, событием не считается.
+HOLDERS = re.compile(
+    r"неявк\w* владельц|отсутстви\w*[^.]{0,60}реквизит|информаци\w* о (?:лицах|владельц)"
+    r"|адресн\w* данн|просрочк\w* кредитор|округлени",
     re.I,
 )
 CREDIT = re.compile(
@@ -546,8 +717,10 @@ def _cause(text: str) -> str:
 def _cause_class(cause: str, default_declared: bool) -> str:
     if default_declared:
         return "кредитная"
+    if HOLDERS.search(cause):
+        return "у держателей"
     if TECHNICAL.search(cause):
-        return "техническая"
+        return "заявлена техническая"
     if CREDIT.search(cause):
         return "кредитная"
     return "неясно"
@@ -559,18 +732,24 @@ def _cause_class(cause: str, default_declared: bool) -> str:
 EPISODE_GAP = 200
 
 
+def _securities() -> list[dict]:
+    """Строки справочника облигаций ISS из кэша `events.py universe`."""
+    rows = []
+    for path in sorted((DATA / "raw").glob("securities.json*")):
+        block = json.loads(path.read_text())["securities"]
+        rows += [dict(zip(block["columns"], values)) for values in block["data"]]
+    return rows
+
+
 def _bond_emitents() -> dict[str, dict]:
     """Эмитенты корпоративных облигаций из справочника ISS (кэш `events.py universe`)."""
     found: dict[str, dict] = {}
-    for path in sorted((DATA / "raw").glob("securities.json*")):
-        block = json.loads(path.read_text())["securities"]
-        for values in block["data"]:
-            row = dict(zip(block["columns"], values))
-            if not row["emitent_id"] or row["type"] in NOT_CORPORATE:
-                continue
-            item = found.setdefault(str(row["emitent_id"]), {
-                "title": row["emitent_title"] or "", "inn": row["emitent_inn"] or "", "isins": set()})
-            item["isins"].add(row["isin"] or row["secid"])
+    for row in _securities():
+        if not row["emitent_id"] or row["type"] in NOT_CORPORATE:
+            continue
+        item = found.setdefault(str(row["emitent_id"]), {
+            "title": row["emitent_title"] or "", "inn": row["emitent_inn"] or "", "isins": set()})
+        item["isins"].add(row["isin"] or row["secid"])
     return found
 
 
@@ -650,7 +829,7 @@ def cmd_extra_texts(limit: str = "") -> None:
 
 
 def _manual_extra() -> dict[str, dict]:
-    """Решения владелицы по отдельным эпизодам вне «Д»: ИНН → решение."""
+    """Решения автора по отдельным эпизодам вне «Д»: ИНН → решение."""
     path = pathlib.Path(__file__).resolve().parents[1] / "manual" / "manual_techdefault.csv"
     if not path.exists():
         return {}
@@ -679,7 +858,7 @@ def _episode_day_zero(episode: list[dict]) -> str:
 def cmd_extra() -> None:
     """Эпизоды неплатежей эмитентов вне «Д» → techdefault_events.csv.
 
-    Роль в исследовании (решение владелицы 2026-09-26): для цели «первый
+    Роль в исследовании (решение автора 2026-09-26): для цели «первый
     техдефолт» эпизод — положительный случай; для цели «дефолт» эмитент
     не участвует, если сам не объявил дефолт. Объявленный дефолт — факт,
     и такой эпизод считается дефолтом с днём ноль из сообщения, хотя
@@ -723,10 +902,10 @@ def cmd_extra() -> None:
 
     episodes = []
     for eid in dict.fromkeys(r["emitent_id"] for r in rows):
-        # Технические неплатежи в эпизоды не входят: копеечная невыплата
-        # держателям без реквизитов (Мечел, 2017) не начинает кредитный эпизод.
+        # Неплатежи держателям в эпизоды не входят: копеечная невыплата
+        # держателям без реквизитов (Мечел, 2017) не начинает эпизод.
         mine = [r for r in rows if r["emitent_id"] == eid and r["bond"]
-                and (r["status"] == "дефолт" or _cause_class(r["cause"], False) != "техническая")]
+                and (r["status"] == "дефолт" or _cause_class(r["cause"], False) != "у держателей")]
         current: list[dict] = []
         for row in mine:
             day = row["due_date"] or row["list_date"]
@@ -742,16 +921,20 @@ def cmd_extra() -> None:
         first = episode[0]
         declared = any(r["status"] == "дефолт" for r in episode)
         classes = {_cause_class(r["cause"], declared) for r in episode}
-        cause_class = next(c for c in ("кредитная", "неясно", "техническая") if c in classes)
+        cause_class = next(c for c in ("кредитная", "заявлена техническая", "неясно", "у держателей") if c in classes)
         decision = (manual.get(first["inn"]) or {}).get("decision", "")
         if decision == "исключить":
             cause_class = "исключён вручную"
+        elif decision == "техническая":
+            # Ручное «техническая» перекрывает статус «дефолт» в сообщении
+            # (Петербургснаб, 2026: «дефолт» из-за ошибки в платёжке, оплачено назавтра).
+            cause_class, declared = "заявлена техническая", False
         elif decision:
             cause_class = decision
         # Дефолт эмитента «Д» уже записан по переводу, поэтому его ранний
-        # эпизод — только техдефолт, даже с отметкой «дефолт» (решение владелицы 2026-10-21).
+        # эпизод — только техдефолт, даже с отметкой «дефолт» (решение автора 2026-10-21).
         day_zero = _episode_day_zero(episode) if declared and first["emitent_id"] not in ours else ""
-        role = ("исключён" if cause_class not in ("кредитная",)
+        role = ("исключён" if cause_class not in ("кредитная", "заявлена техническая")
                 else "дефолт" if day_zero else "только техдефолт")
         table.append({
             "emitent_id": first["emitent_id"],
@@ -810,16 +993,15 @@ def cmd_extra() -> None:
         writer = csv.DictWriter(fh, fieldnames=list(table[0]))
         writer.writeheader()
         writer.writerows(table)
-    # Ручное решение «техническая» перекрывает статус «дефолт» в сообщении
-    # (Петербургснаб, 2026: «дефолт» из-за ошибки в платёжке, оплачено назавтра).
-    manual_technical = {inn for inn, row in manual.items() if row["decision"] == "техническая"}
-    technical = [r for r in rows if r["bond"] and (
-        r["inn"] in manual_technical
-        or (r["status"] != "дефолт" and _cause_class(r["cause"], False) == "техническая"))]
+    holders = [r for r in rows if r["bond"] and r["status"] != "дефолт"
+               and _cause_class(r["cause"], False) == "у держателей"]
     print(f"сообщений эмитентов вне «Д»: {len(rows)} (про облигации {sum(r['bond'] for r in rows)}, "
-          f"из них технических неплатежей {len({(r['emitent_id'], r['due_date']) for r in technical})} "
-          f"({len(technical)} сообщений) у {len({r['emitent_id'] for r in technical})} эмитентов — "
+          f"из них неплатежей держателям {len({(r['emitent_id'], r['due_date']) for r in holders})} "
+          f"({len(holders)} сообщений) у {len({r['emitent_id'] for r in holders})} эмитентов — "
           f"в эпизоды не входят)")
+    for cls in ("кредитная", "заявлена техническая"):
+        mine = [t for t in table if t["cause_class"] == cls and t["role"] != "исключён"]
+        print(f"  причина {cls}: {len(mine)} эпизодов, эмитентов {len({t['emitent_id'] for t in mine})}")
     print(f"эпизодов: {len(table)}, эмитентов: {len({t['emitent_id'] for t in table})}")
     for role in ("дефолт", "только техдефолт", "исключён"):
         mine = [t for t in table if t["role"] == role]
@@ -1035,7 +1217,7 @@ if __name__ == "__main__":
     commands = {"list": cmd_list, "texts": cmd_texts, "parse": cmd_parse,
                 "cid-texts": cmd_cid_texts, "extra-texts": cmd_extra_texts, "extra": cmd_extra,
                 "cures-texts": cmd_cures_texts, "cures": cmd_cures, "restruct-list": cmd_restruct_list,
-                "restruct-texts": cmd_restruct_texts}
+                "restruct-texts": cmd_restruct_texts, "restruct": cmd_restruct}
     if len(sys.argv) not in (2, 3) or sys.argv[1] not in commands:
         raise SystemExit(__doc__)
     commands[sys.argv[1]](*sys.argv[2:])

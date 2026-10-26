@@ -82,7 +82,7 @@ def main() -> None:
     for event in events:
         key = dz._normalize(event["emitent_title"])
         chain = next(
-            (items for other, items in chains.items() if other and (other in key or key in other)),
+            (items for other, items in chains.items() if dz._same_company(other, key)),
             [],
         )
         # Только то, что случилось до дефолта: после него бумага уже в «Д».
