@@ -4,6 +4,8 @@
 
 * «Завершенные сделки» — покупки и продажи. Количество со знаком: минус —
   бумага ушла со счёта. «Сумма сделки» включает НКД, он дан отдельной колонкой.
+  «Незавершенные сделки» (расчёт после конца периода) читаются так же: номер
+  тот же, и в следующей выписке завершённая сделка заменит незавершённую.
 * «Движение ДС» — купоны, амортизации, дивиденды, бонусы. Строки «Расчеты по
   сделке», «НКД по сделке», «Комиссия по сделке» пропускаются: это та же сделка,
   уже взятая с листа сделок.
@@ -305,11 +307,14 @@ def load(folder: Path | None = None, resolve_regnumber: Callable[[str], str | No
             continue
         span = period(sheets)
         deals = parse_trades(_sheet(sheets, "Завершенные сделки") or [])
+        pending = parse_trades(_sheet(sheets, "Незавершенные сделки") or [])
         money, problems = parse_cash(_sheet(sheets, "Движение ДС") or [], resolve_regnumber)
-        if not deals and not money:
+        if not deals and not money and not pending:
             continue  # пустая выписка (период до сегодняшнего дня) — ничего не значит
         for op in deals:
             trades[op["ext_id"]] = op
+        for op in pending:
+            trades.setdefault(op["ext_id"], op)
         for op in money:
             cash[op["ext_id"]] = op
         unknown += problems

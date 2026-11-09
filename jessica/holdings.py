@@ -410,12 +410,18 @@ def collect(config: Config) -> dict:
             raise SystemExit(f"Неизвестный источник портфеля «{portfolio.title}»: {portfolio.source}")
         positions, skipped, path, broker = parse_portfolio(portfolio)
         known = previous.get(portfolio.key)
-        if path and not positions and known and known.get("positions"):
+        if not positions:
             # Брокер выдал пустой отчёт (у Альфы — период по сегодняшний день).
             # Пустой состав стёр бы бумаги из календаря, поэтому держим прошлый.
-            block = dict(known)
+            block = dict(known) if known else {
+                "title": portfolio.title, "source_file": path.name if path else None,
+                "format": broker, "positions": [], "skipped": skipped,
+            }
             block["stale"] = True
-            block["stale_reason"] = f"выгрузка {path.name} пустая: {'; '.join(skipped) or 'позиций нет'}"
+            block["stale_reason"] = (
+                f"выгрузка {path.name} пустая: {'; '.join(skipped) or 'позиций нет'}"
+                if path else "не найдена брокерская выгрузка"
+            )
             holdings["portfolios"][portfolio.key] = block
             continue
         holdings["portfolios"][portfolio.key] = {

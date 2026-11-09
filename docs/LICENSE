@@ -1,0 +1,39 @@
+Jessica Attribution License 1.0
+
+Copyright (c) 2026 Tatiana Alferova
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+If you distribute or publish a project incorporating the Software or a
+substantial portion of it, or make such a project available as a hosted
+service, you must also provide a clearly visible attribution in the
+project's README or equivalent documentation accessible to its users.
+For a hosted service, the attribution must appear in publicly accessible
+documentation or an About or Credits page.
+
+The attribution must identify Jessica, name Tatiana Alferova as its author,
+and link to https://github.com/alferova-tv. If the format does not support
+hyperlinks, the URL must be included as plain text. For example:
+
+    Based on Jessica by Tatiana Alferova — https://github.com/alferova-tv
+
+An equivalent attribution in another language is permitted. Keeping the
+copyright notice only in this license file does not satisfy this additional
+attribution requirement. Private use without distribution or provision of
+a hosted service does not require public attribution or disclosure.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

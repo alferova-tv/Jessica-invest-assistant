@@ -21,3 +21,9 @@ drafts.txt
 
 # Инструкции для Claude Code
 CLAUDE.md
+AGENTS.md
+
+# Локальный сбор и разбор раскрытия Интерфакса
+/scripts/disclosure.py
+/scripts/disclosure_bond_events.py
+/tests/test_disclosure_bond_events.py

@@ -65,7 +65,7 @@ def _post(config: Config, part: str, preview: bool) -> bool:
             log.error("Telegram отклонил сообщение: %s", payload.get("description"))
             return False
         except requests.RequestException as exc:
-            log.warning("Попытка %d из %d не удалась: %s", attempt, ATTEMPTS, exc)
+            log.warning("Попытка %d из %d не удалась: %s", attempt, ATTEMPTS, type(exc).__name__)
             if attempt < ATTEMPTS:
                 time.sleep(2 ** attempt)
     log.error("Сообщение не отправлено после %d попыток", ATTEMPTS)

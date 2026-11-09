@@ -64,7 +64,8 @@ CREATE TABLE IF NOT EXISTS securities (
     currency   TEXT,
     maturity   TEXT,
     updated    TEXT,
-    sector     TEXT                      -- сектор экономики по T-Invest: energy, financial…
+    sector     TEXT,                     -- сектор экономики по T-Invest: energy, financial…
+    rating     TEXT                      -- кредитный рейтинг выпуска со smart-lab: AA-, A…
 );
 CREATE INDEX IF NOT EXISTS securities_reg ON securities (regnumber);
 
@@ -112,6 +113,8 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(securities)")}
     if "sector" not in columns:  # до диверсификации по секторам
         conn.execute("ALTER TABLE securities ADD COLUMN sector TEXT")
+    if "rating" not in columns:  # до диверсификации по риску
+        conn.execute("ALTER TABLE securities ADD COLUMN rating TEXT")
     return conn
 
 
@@ -142,7 +145,7 @@ def upsert_operation(conn: sqlite3.Connection, op: dict) -> bool:
 def upsert_security(conn: sqlite3.Connection, info: dict) -> None:
     """Дополнить справочник: пустые поля не затирают известные."""
     columns = [key for key in ("secid", "name", "kind", "issuer", "regnumber", "market", "board",
-                               "facevalue", "currency", "maturity", "updated", "sector") if info.get(key) not in (None, "")]
+                               "facevalue", "currency", "maturity", "updated", "sector", "rating") if info.get(key) not in (None, "")]
     conn.execute("INSERT OR IGNORE INTO securities (isin) VALUES (?)", (info["isin"],))
     if columns:
         conn.execute(

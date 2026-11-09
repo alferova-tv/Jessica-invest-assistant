@@ -3,6 +3,7 @@
     GET  /api/report?portfolio=alpha     сводка, позиции, доходы, структура
     GET  /api/operations?portfolio=…     журнал операций
     GET  /api/security?isin=…            карточка бумаги с историей цены за год
+    GET  /api/candles?isin=…&range=day   цена внутри дня (10 мин) или недели (1 ч)
     POST /api/operations                 добавить операцию руками
     DELETE /api/operations/<id>          удалить операцию (только ручную)
     POST /api/sync                       запустить синхронизацию в фоне
@@ -18,6 +19,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import logging
+import sys
 import threading
 import time
 import traceback
@@ -27,7 +29,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 from zoneinfo import ZoneInfo
 
-from . import db, iss, model, sync
+from . import db, iss, model, paths, sync
 
 log = logging.getLogger(__name__)
 
@@ -67,8 +69,16 @@ MSK = ZoneInfo("Europe/Moscow")
 
 
 def _trading(now: dt.datetime) -> bool:
-    """Будни, 10:00–20:00 МСК."""
-    return now.weekday() < 5 and dt.time(10) <= now.time() <= dt.time(20)
+    """Проверки котировок с 10 до 20 МСК, с учётом календаря фондового рынка."""
+    if not dt.time(10) <= now.time() <= dt.time(20):
+        return False
+    if str(paths.JESSICA_CODE) not in sys.path:
+        sys.path.insert(0, str(paths.JESSICA_CODE))
+    from jessica.sources import trading_calendar
+    day = trading_calendar.get_day(now.date(), paths.invest_home() / "state/trading_calendar.json")
+    # При неизвестном календаре пробуем получить котировки. Их фактические даты
+    # сохраняются источником; неизвестный день не объявляется торговым.
+    return day is None or day["is_traded"] is not False
 
 
 def _quotes_loop() -> None:
@@ -94,6 +104,22 @@ def _history(security: dict) -> tuple[list[dict] | None, str | None]:
         except iss.Unavailable as exc:
             return None, f"ISS не ответил ({exc})"
     return _history_cache[key], None
+
+
+def _candles(security: dict, span: str) -> tuple[list[dict] | None, str | None]:
+    """День — десятиминутки последнего торгового дня, неделя — часовые свечи за 7 дней."""
+    if not (security.get("secid") and security.get("market") and security.get("board")):
+        return None, "биржа не знает эту бумагу"
+    days, interval = (5, 10) if span == "day" else (7, 60)
+    since = (dt.date.today() - dt.timedelta(days=days)).isoformat()
+    try:
+        points = iss.candles(security, since, interval)
+    except iss.Unavailable as exc:
+        return None, f"ISS не ответил ({exc})"
+    if span == "day" and points:
+        last_day = points[-1]["date"][:10]
+        points = [p for p in points if p["date"].startswith(last_day)]
+    return points, None
 
 
 def _manual_operation(body: dict) -> dict:
@@ -178,6 +204,13 @@ class Handler(BaseHTTPRequestHandler):
             card["history"], card["history_error"] = _history(card["security"])
             card["portfolios"] = model.PORTFOLIO_TITLES
             return self._send(HTTPStatus.OK, card)
+        if path == "/api/candles":
+            with db.session() as conn:
+                row = conn.execute("SELECT * FROM securities WHERE isin = ?", (query.get("isin") or "",)).fetchone()
+            if not row:
+                raise ValueError("нет такой бумаги")
+            points, error = _candles(dict(row), query.get("range") or "day")
+            return self._send(HTTPStatus.OK, {"history": points, "history_error": error})
         if path == "/api/sync":
             with db.session() as conn:
                 return self._send(HTTPStatus.OK, {**_sync_state, "last": model.last_sync(conn)})

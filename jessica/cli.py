@@ -17,10 +17,13 @@ import json
 import logging
 import sys
 import time
+from zoneinfo import ZoneInfo
 
 from . import calendar as cal
 from . import events, holdings, notify
 from .config import Config
+
+MOSCOW = ZoneInfo("Europe/Moscow")
 
 
 def _log(config: Config) -> None:
@@ -44,6 +47,9 @@ def refresh_due(state: dict, now: dt.datetime, retry_hours: int) -> bool:
         attempt = dt.datetime.fromisoformat(state["refresh_attempt"])
     except (KeyError, ValueError):
         return True
+    if now.tzinfo is not None:
+        # Старые отметки без смещения записывались по местному времени Mac.
+        attempt = attempt.astimezone(now.tzinfo)
     return attempt.date() != now.date() or now - attempt >= dt.timedelta(hours=retry_hours)
 
 
@@ -105,7 +111,9 @@ def cmd_refresh(config: Config, args) -> int:
     schedule = cal.build(config)
     print(f"событий в календаре: {len(schedule['events'])}")
     if schedule["incomplete"]:
-        print("нет данных по выпускам:", ", ".join(schedule["incomplete"]))
+        print("не удалось обновить купоны по выпускам:", ", ".join(schedule["incomplete"]))
+    if schedule.get("incomplete_details"):
+        print("не удалось обновить параметры выпусков:", ", ".join(schedule["incomplete_details"]))
     return 0
 
 
@@ -123,6 +131,9 @@ def cmd_calendar(config: Config, args) -> int:
 def cmd_check(config: Config, args) -> int:
     today = dt.date.fromisoformat(args.date) if args.date else dt.date.today()
     text = events.send_due(config, today, dry_run=args.dry_run)
+    if text is None:
+        print("не удалось отправить уведомление; повтори команду позже")
+        return 1
     if not text:
         print("на эту дату событий нет")
     else:
@@ -151,7 +162,7 @@ def cmd_market(config: Config, args) -> int:
 def cmd_doctor(config: Config, args) -> int:
     import requests
     from .sources.smartlab import fetch_coupons
-    from .sources import market, news
+    from .sources import market, news, trading_calendar
 
     print("Проверка источников и связи:\n")
     checks: list[tuple[str, bool, str]] = []
@@ -164,9 +175,19 @@ def cmd_doctor(config: Config, args) -> int:
     for name, count in news.feed_status():
         checks.append((f"лента {name}", count > 0, f"{count} записей"))
 
+    trading_day = trading_calendar.get_day(
+        dt.datetime.now(MOSCOW).date(), config.state_file("trading_calendar.json"), timeout=config.moex_timeout,
+    )
+    known_day = trading_day is not None and trading_day["is_traded"] is not None
+    checks.append((
+        "календарь Мосбиржи", known_day,
+        ("торговый день" if trading_day["is_traded"] else "неторговый день")
+        if known_day else "торговый статус неизвестен",
+    ))
+
     # Источники утренней сводки. ISS Мосбиржи годами был закрыт из-под VPN
     # и может закрыться снова; за ним стоят Alor и smart-lab. Что именно
-    # ответило — видно по названию индекса: у smart-lab это IMOEX, не IMOEX2.
+    # Все три источника запрашиваются для IMOEX.
     index = market.fetch_index(events.MARKET_INDEX, timeout=config.moex_timeout)
     checks.append((
         f"Мосбиржа ({events.MARKET_INDEX})",
@@ -230,10 +251,11 @@ def cmd_run(config: Config, args) -> int:
     по рынку, первого числа — календарь на месяц. Проход идемпотентен: повтор
     в тот же час ничего не задваивает.
     """
-    now = dt.datetime.now()
+    now = dt.datetime.now(MOSCOW)
     marker = config.state_file("last_run.json")
     state = json.loads(marker.read_text(encoding="utf-8")) if marker.exists() else {}
     today = now.date().isoformat()
+    calendar_built = False
 
     # Состав — раз в сутки. Если API брокера не ответил, прошлый состав остаётся,
     # а сбор повторяется через refresh_retry_hours: VPN то пускает к брокеру, то нет.
@@ -243,30 +265,39 @@ def cmd_run(config: Config, args) -> int:
         after = holdings.collect(config)
         if rebuild_needed(state, now, before, after):
             cal.build(config)
+            state["calendar_attempt"] = now.isoformat(timespec="seconds")
+            calendar_built = True
         state["refresh_attempt"] = now.isoformat(timespec="seconds")
         if not stale_portfolios(after):
             state["refreshed"] = today
+
+    schedule_path = config.state_file("schedule.json")
+    if not calendar_built and schedule_path.exists():
+        schedule = cal.load(config)
+        pending = schedule.get("incomplete") or schedule.get("incomplete_details")
+        attempt = state.get("calendar_attempt") or schedule.get("updated")
+        if pending and refresh_due({"refresh_attempt": attempt}, now, config.refresh_retry_hours):
+            cal.build(config, retry_failed=True)
+            state["calendar_attempt"] = now.isoformat(timespec="seconds")
 
     # Новости смотрим каждый час: дефолт или отчётность ждать до утра незачем.
     events.send_news(config, now.date())
 
     if now.hour >= config.morning_hour and state.get("checked") != today:
-        events.send_due(config, now.date())
-        state["checked"] = today
+        if events.send_due(config, now.date()) is not None:
+            state["checked"] = today
 
-        if now.day == 1 and state.get("monthly") != today:
-            text = events.monthly_calendar(config, now.date())
-            if text:
-                notify.send(config, text)
+    if now.hour >= config.morning_hour and now.day == 1 and state.get("monthly") != today:
+        text = events.monthly_calendar(config, now.date())
+        if not text or notify.send(config, text):
             state["monthly"] = today
 
     # Сводка по рынку — отдельным часом и отдельной отметкой: она зависит
     # от живых торгов, а события дня — только от календаря.
-    weekend = now.weekday() >= 5 and not config.market_weekends
-    if now.hour >= config.market_hour and state.get("market") != today and not weekend:
-        # Пустой ответ означает, что оба источника промолчали: не отмечаем
-        # рассылку выполненной, и следующий проход попробует ещё раз.
-        if events.send_market(config, now.date()):
+    if now.hour >= config.market_hour and state.get("market") != today:
+        # Источники промолчали либо день неторговый/не подтверждён:
+        # следующий проход проверит календарь и доступность ещё раз.
+        if events.send_market(config, now.date(), scheduled=True):
             state["market"] = today
 
     marker.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")

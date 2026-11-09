@@ -4,44 +4,47 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Портфель</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-/* Палитра MP088: Hēi Sè Black #142030, Blue Whale #1E3442, Pico Eggplant #732553,
-   Stellar Strawberry #FF5C8D, Grauzone #85A3B2, Siesta Tan #E9D8C8.
-   Цвета графиков (--s*) — шаги тех же оттенков, проверенные валидатором dataviz
-   на различимость при дальтонизме: сами исходные цвета слишком светлые или серые для столбиков. */
+/* «Прусская синь на холодной бумаге»: чернильно-синий акцент, как на гравированных
+   облигационных сертификатах, на холодном сером фоне. Цвета графиков (--s*, --d*)
+   проверены валидатором dataviz на различимость при дальтонизме в обеих темах. */
 :root {
   color-scheme: light;
-  --bg: #f3e9df; --surface: #fbf6f1; --surface-2: #efe3d6; --line: #e2d2c1;
-  --text: #142030; --text-2: #1e3442; --muted: #5e7886;
-  --accent: #732553; --on-accent: #fbf6f1;
-  --s1: #c42a62; --s2: #a0611f; --s3: #a0611f; --s4: #21709f;
+  --bg: #eceff2; --surface: #f8f9fa; --surface-2: #e3e7ec; --line: #d6dbe2;
+  --text: #141b26; --text-2: #3f4a5b; --muted: #6b7587;
+  --accent: #1f4f8f; --on-accent: #f8f9fa;
+  --s1: #2a62ad; --s2: #b5741c; --s3: #b5741c; --s4: #b3407a;
   /* бумаги внутри группы на пончике: соседние пары проверены валидатором */
   --d0: #c42a62; --d1: #21709f; --d2: #9a7a12; --d3: #8a4fa6; --d4: #a0611f; --d5: #008aa8; --d6: #b9502f; --d7: #4a5fb8;
-  --good: #1e7a52; --bad: #c0392b; --warn-bg: #f6dfe6; --warn-line: #e3a3b8;
-  --hero: radial-gradient(120% 140% at 100% 0%, #ff5c8d 0%, #b43a72 38%, #732553 70%, #1e3442 120%);
-  --on-hero: #fbf6f1;
-  --radius: 12px;
+  /* приглушённые цвета полос «Структуры»: подписи у каждой полосы есть, цвет только разделяет соседние */
+  --h0: #3f68a3; --h1: #9a6f2e; --h2: #8a5583; --h3: #3d7a65;
+  --good: #1e7a4e; --bad: #b83a2e; --warn-bg: #f6eddc; --warn-line: #e2c48c;
+  --radius: 10px;
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%236b7587' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 @media (prefers-color-scheme: dark) {
   :root:where(:not([data-theme="light"])) {
     color-scheme: dark;
-    --bg: #142030; --surface: #1e3442; --surface-2: #26404f; --line: #2e4a5a;
-    --text: #f3e9df; --text-2: #c9d3d9; --muted: #85a3b2;
-    --accent: #ff5c8d; --on-accent: #142030;
-    --s1: #e8527f; --s2: #c4844c; --s3: #c4844c; --s4: #3a92cc;
+    --bg: #0f141b; --surface: #161d27; --surface-2: #1f2834; --line: #263140;
+    --text: #e7ebf0; --text-2: #b0bac8; --muted: #7d8899;
+    --accent: #7aa7e8; --on-accent: #0f141b;
+    --s1: #5b8fd6; --s2: #b88434; --s3: #b88434; --s4: #c56a9e;
     --d0: #e8527f; --d1: #3a92cc; --d2: #ad8524; --d3: #b07cc6; --d4: #c4844c; --d5: #1fa3b0; --d6: #d0644a; --d7: #7a8fd6;
-    --good: #6fd4a0; --bad: #ff7a5c; --warn-bg: #3a2340; --warn-line: #732553;
-    --hero: radial-gradient(120% 140% at 100% 0%, #ff5c8d 0%, #a83a6c 35%, #732553 62%, #1e3442 110%);
-    --on-hero: #f3e9df;
+    --h0: #6a8cc4; --h1: #b58b4f; --h2: #a8739f; --h3: #5b9c86;
+    --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%237d8899' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    --good: #5cc48c; --bad: #f07f6e; --warn-bg: #2a2417; --warn-line: #6b5528;
   }
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text);
-  font: 14px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  font: 14px/1.45 "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-variant-numeric: tabular-nums; }
 header { position: sticky; top: 0; z-index: 5; background: var(--bg); border-bottom: 1px solid var(--line); }
 .bar { max-width: 1240px; margin: 0 auto; padding: 12px 16px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
-.logo { font-weight: 700; font-size: 17px; margin-right: 8px; }
+.logo { font-weight: 600; font-size: 17px; margin-right: 8px; letter-spacing: -.01em; }
 .seg { display: inline-flex; background: var(--surface-2); border-radius: 8px; padding: 2px; }
 .seg button { border: 0; background: none; color: var(--text-2); padding: 6px 12px; border-radius: 6px; font: inherit; cursor: pointer; }
 .seg button.on { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
@@ -54,23 +57,32 @@ nav a { padding: 8px 12px; color: var(--text-2); text-decoration: none; border-b
 nav a.on { color: var(--text); border-color: var(--accent); }
 main { max-width: 1240px; margin: 0 auto; padding: 16px; }
 .grid { display: grid; gap: 12px; }
-.tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-@media (max-width: 980px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 480px) { .tiles { grid-template-columns: 1fr; } }
-.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; min-width: 0; }
-.card h2 { font-size: 13px; font-weight: 600; color: var(--text-2); margin: 0 0 10px; text-transform: none; }
+/* Второстепенные цифры — одна полоса с вертикальными линиями между ячейками, без отдельных карточек. */
+.tiles { grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 0; background: var(--surface); border-radius: var(--radius); }
+.tiles .tile { padding: 14px 18px; border-left: 1px solid var(--line); }
+.tiles .tile:first-child { border-left: 0; }
+@media (max-width: 980px) { .tiles { grid-auto-flow: row; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tiles .tile { border-left: 0; border-top: 1px solid var(--line); } .tiles .tile:nth-child(-n+2) { border-top: 0; }
+  .tiles .tile:nth-child(even) { border-left: 1px solid var(--line); }
+  .tiles .tile:last-child:nth-child(odd) { grid-column: 1 / -1; } }
+/* Главные цифры обзора: без фона, крупно, на общей базовой линии. */
+.lead { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 12px 32px; align-items: start; padding: 8px 2px 18px; }
+@media (max-width: 760px) { .lead { grid-template-columns: 1fr 1fr; } .lead > :first-child { grid-column: 1 / -1; } }
+.lead .label { color: var(--text-2); font-size: 13px; }
+.lead .value { font-size: 26px; font-weight: 500; letter-spacing: -.015em; line-height: 1.15; margin-top: 2px; }
+.lead > :first-child .value { font-size: 44px; letter-spacing: -.025em; }
+@media (max-width: 480px) { .lead > :first-child .value { font-size: 36px; } .lead .value { font-size: 22px; } }
+.lead .sub { color: var(--muted); font-size: 12.5px; margin-top: 4px; }
+.card { background: var(--surface); border-radius: var(--radius); padding: 16px 18px; min-width: 0; }
+.card h2 { font-size: 15px; font-weight: 600; color: var(--text); margin: 0 0 12px; letter-spacing: -.005em; }
 .tile .label { color: var(--text-2); font-size: 12px; }
-.tile .value { font-size: 22px; font-weight: 650; margin-top: 2px; }
+.tile .value { font-size: 20px; font-weight: 500; margin-top: 2px; letter-spacing: -.01em; }
 .tile .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
 .hint { border-bottom: 1px dashed currentColor; }
 .q { display: inline-grid; place-items: center; width: 14px; height: 14px; border: 1px solid currentColor; border-radius: 50%;
      font-size: 10px; line-height: 1; vertical-align: 1px; margin-left: 2px; }
 .hovertip { position: fixed; pointer-events: none; background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
-  padding: 8px 10px; font-size: 12px; line-height: 1.4; color: var(--text); box-shadow: 0 4px 14px rgba(0,0,0,.12); max-width: 280px; display: none; z-index: 10; }
-.hero .value { font-size: 30px; }
-.tile.glow { background: var(--hero); border-color: transparent; color: var(--on-hero); }
-.tile.glow .label, .tile.glow .sub { color: var(--on-hero); opacity: .85; }
-nav a.on { border-color: var(--s1); }
+  padding: 8px 10px; font-size: 12px; line-height: 1.4; color: var(--text); white-space: pre-line; box-shadow: 0 4px 14px rgba(0,0,0,.12); max-width: 280px; display: none; z-index: 10; }
 .pos { color: var(--good); } .neg { color: var(--bad); }
 .two { grid-template-columns: 2fr 1fr; }
 @media (max-width: 860px) { .two { grid-template-columns: 1fr; } }
@@ -85,8 +97,7 @@ tr:hover td { background: var(--surface-2); }
 .scroll { overflow-x: auto; }
 .tag { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 4px; background: var(--surface-2); color: var(--text-2); margin-left: 4px; }
 .tag.warn { background: var(--warn-bg); color: var(--text); }
-.notice { background: var(--warn-bg); border: 1px solid var(--warn-line); border-radius: var(--radius); padding: 10px 14px; margin-bottom: 12px; }
-.notice ul { margin: 4px 0 0; padding-left: 18px; }
+.notice { background: var(--warn-bg); border-left: 3px solid var(--warn-line); border-radius: var(--radius); padding: 10px 14px; margin-bottom: 12px; }
 .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--text-2); margin-bottom: 6px; }
 .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
 .chart { position: relative; }
@@ -99,13 +110,16 @@ tr:hover td { background: var(--surface-2); }
 .tip .row span:last-child { white-space: nowrap; }
 .hbar { display: grid; grid-template-columns: minmax(120px, 34%) 1fr 92px; gap: 10px; align-items: center; padding: 4px 0; }
 .hbar .lbl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
-.hbar .track { height: 10px; background: var(--surface-2); border-radius: 4px; overflow: hidden; }
-.hbar .fill { height: 100%; background: var(--s1); border-radius: 4px; }
+.hbar .track { height: 8px; }
+.hbar .fill { height: 100%; background: var(--h0); border-radius: 0 3px 3px 0; min-width: 2px; }
 .hbar .num { text-align: right; color: var(--text-2); font-size: 12px; }
 .muted { color: var(--muted); }
 form.op { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; align-items: end; }
 form.op label { display: grid; gap: 3px; font-size: 12px; color: var(--text-2); }
 input, select { font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--text); min-width: 0; }
+/* Своя стрелка у списков: системную нельзя отодвинуть от края. */
+select { appearance: none; -webkit-appearance: none; padding-right: 34px;
+  background: var(--surface) var(--chevron) no-repeat right 12px center / 12px 8px; }
 .filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; align-items: center; }
 .empty { color: var(--muted); padding: 24px 0; text-align: center; }
 .del { border: 0; background: none; color: var(--muted); cursor: pointer; }
@@ -121,8 +135,8 @@ a.sec:hover { color: var(--accent); }
 .tip i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; }
 .back { display: inline-block; color: var(--text-2); text-decoration: none; margin-bottom: 10px; cursor: pointer; }
 .sechead { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; align-items: flex-end; }
-.sechead h1 { font-size: 20px; margin: 0; }
-.big { font-size: 28px; font-weight: 650; }
+.sechead h1 { font-size: 22px; font-weight: 600; margin: 0; letter-spacing: -.01em; }
+.big { font-size: 30px; font-weight: 500; letter-spacing: -.02em; }
 .kv { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; font-size: 13px; }
 .kv dt { color: var(--text-2); } .kv dd { margin: 0; text-align: right; }
 .kv h3 { grid-column: 1 / -1; font-size: 13px; margin: 10px 0 2px; }
@@ -136,7 +150,7 @@ a.sec:hover { color: var(--accent); }
 .donut path { cursor: pointer; transition: opacity .15s; }
 .donut.hl path:not(.on) { opacity: .35; }
 .donut .center { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; pointer-events: none; }
-.donut .center b { font-size: 18px; } .donut .center span { color: var(--muted); font-size: 12px; }
+.donut .center b { font-size: 19px; font-weight: 500; } .donut .center span { color: var(--muted); font-size: 12px; }
 .comp table tr { cursor: pointer; }
 .comp table tr.on td { background: var(--surface-2); }
 .comp .sw { display: inline-block; width: 4px; height: 28px; border-radius: 2px; vertical-align: middle; margin-right: 10px; }
@@ -165,7 +179,7 @@ a.sec:hover { color: var(--accent); }
 <main id="view"><div class="empty">Загрузка…</div></main>
 
 <script>
-const state = { comp: null, portfolio: localGet("pf") || "", tab: "overview", isin: null, card: null, range: 365, report: null, ops: null,
+const state = { comp: null, portfolio: localGet("pf") || "", tab: "overview", isin: null, card: null, range: "1y", report: null, ops: null,
                 sort: { key: "value_full", dir: -1 }, opFilter: "", structBy: "issuer" };
 function route() {
   const [tab, isin] = (location.hash.slice(1) || "overview").split("/");
@@ -230,56 +244,39 @@ function renderHeader() {
   document.querySelectorAll("#tabs a").forEach(a => a.classList.toggle("on", a.dataset.tab === state.tab));
 }
 
-function notices() {
-  const r = state.report, items = [];
-  const s = r.last_sync;
-  if (!s) items.push("Данных ещё нет — нажми «Обновить»: загрузятся выписки Альфы, операции Т, цены и графики выплат.");
-  if (s) {
-    (s.silent || []).forEach(x => items.push("Не ответил: " + esc(x) + ". Показаны прошлые данные."));
-    if (s.alfa_period && s.alfa_period[1]) {
-      const days = Math.round((new Date(r.today) - new Date(s.alfa_period[1])) / 864e5);
-      if (days > 7 && (!state.portfolio || state.portfolio === "alpha"))
-        items.push(`Выписки Альфы есть по ${date(s.alfa_period[1])} — купоны и амортизации после этой даты не учтены. Положи свежую выписку в папку alpha/reports и обнови.`);
-    }
-    (s.notes || []).forEach(x => items.push(esc(x)));
-    if (s.unknown && s.unknown.length) items.push(`Нераспознанных строк: ${s.unknown.length} — список на вкладке «Операции».`);
-  }
-  if (r.reconcile.length) items.push("Количество расходится с составом Jessica: " +
-    r.reconcile.map(x => `${esc(x.name)} — здесь ${nf.format(x.ours)}, у Jessica ${nf.format(x.jessica)}`).join("; ") + ".");
-  return items.length ? `<div class="notice"><b>Обрати внимание</b><ul>${items.map(i => `<li>${i}</li>`).join("")}</ul></div>` : "";
-}
-
 function render() {
   const view = document.getElementById("view");
   const r = state.report;
   if (state.tab === "security") { renderSecurity(); return; }
   const pages = { overview, positions, income, structure, operations };
-  view.innerHTML = notices() + (pages[state.tab] || overview)(r);
+  view.innerHTML = (pages[state.tab] || overview)(r);
   if (state.tab === "overview" || state.tab === "income") drawIncome(r, state.tab === "overview" ? 18 : 0);
   if (state.tab === "overview") bindComposition(r);
   if (state.tab === "operations") loadOps();
 }
 
 function tile(label, value, sub, klass = "") {
-  return `<div class="card tile ${klass}"><div class="label">${label}</div><div class="value">${value}</div>${sub ? `<div class="sub">${sub}</div>` : ""}</div>`;
+  return `<div class="tile ${klass}"><div class="label">${label}</div><div class="value">${value}</div>${sub ? `<div class="sub">${sub}</div>` : ""}</div>`;
 }
 
 function overview(r) {
   const s = r.summary, inc = r.income;
   const xirr = s.xirr == null ? "—" : pct(s.xirr * 100, true);
-  return `<div class="grid tiles">
-    ${tile("Стоимость портфеля", rub(s.value), `в т. ч. НКД ${rub(s.accrued_now)} · бумаг ${s.positions}`, "hero glow")}
+  return `<div class="lead">
+    ${tile("Стоимость портфеля", rub(s.value), `в т. ч. НКД ${rub(s.accrued_now)}, бумаг ${s.positions}`)}
     ${tile("Прибыль за всё время", `<span class="${cls(s.profit)}">${signed(s.profit)}</span>`,
-      `${s.day_change == null ? "" : `<span class="${cls(s.day_change)}">${signed(s.day_change, true)} (${pct(s.day_change_pct, true)})</span> за день<br>`}доходность ${xirr} годовых (XIRR)`, "hero")}
+      `${s.day_change == null ? "" : `<span class="${cls(s.day_change)}">${signed(s.day_change, true)} (${pct(s.day_change_pct, true)})</span> за день<br>`}доходность ${xirr} годовых (XIRR)`)}
     ${tile(`Доходность <span class="q" title="Прибыль за всё время ${signed(s.profit)} к пополнениям счетов ${rub(s.deposited)}">?</span>`,
       s.return_pct == null ? "—" : `<span class="${cls(s.return_pct)}">${pct(s.return_pct, true)}</span>`,
       `${pct(s.unrealized_pct, true)} <span class="hint" title="Только бумаги, которые сейчас в портфеле: текущая цена против средней цены покупки, без купонов, НКД и проданных бумаг. В рублях ${signed(s.unrealized)} к вложенным ${rub(s.cost)}.">рост активов</span>`)}
+  </div>
+  <div class="grid tiles">
     ${tile("Купонов получено", rub(s.coupons), `за вычетом НКД, уплаченного при покупке: ${signed(s.coupons_net)}`)}
     ${tile("Дивидендов получено", rub(s.dividends))}
     ${tile(`Пассивный доход <span class="q" title="Купоны и дивиденды, ожидаемые за 12 месяцев по текущему составу, до налога, к стоимости портфеля">?</span>`,
-      s.passive_pct == null ? "—" : pct(s.passive_pct), `${rub(inc.expected_12m)} в год · ≈ ${rub(inc.expected_12m_monthly)} в месяц`)}
+      s.passive_pct == null ? "—" : pct(s.passive_pct), `${rub(inc.expected_12m)} в год<br>≈ ${rub(inc.expected_12m_monthly)} в месяц`)}
     ${tile("Вернётся номинала за 12 мес.", rub(inc.capital_back_12m), "амортизации и погашения")}
-    ${tile("Комиссии и налоги", `<span class="neg">${signed(-s.fees + s.taxes)}</span>`, `комиссии ${rub(s.fees)} · налоги ${rub(-s.taxes)}`)}
+    ${tile("Комиссии и налоги", `<span class="neg">${signed(-s.fees + s.taxes)}</span>`, `комиссии ${rub(s.fees)}<br>налоги ${rub(-s.taxes)}`)}
   </div>
   <div class="card" style="margin-top:12px" id="comp">${composition(r)}</div>
   <div class="grid two" style="margin-top:12px">
@@ -287,7 +284,7 @@ function overview(r) {
     <div class="card"><h2>Ближайшие выплаты</h2>${upcomingList(r.upcoming.slice(0, 8))}</div>
   </div>
   ${movers(r)}
-  <div class="card" style="margin-top:12px"><h2>Крупные позиции</h2>${hbars(r.structure.position.slice(0, 10))}</div>`;
+  <div class="card" style="margin-top:12px"><h2>Крупные позиции</h2>${hbars(r.structure.position.slice(0, 5))}</div>`;
 }
 
 function movers(r) {
@@ -370,7 +367,7 @@ function composition(r) {
       <div class="scroll" style="max-height:420px;overflow-y:auto"><table><thead><tr><th class="l">Название</th><th>Стоимость / вложено</th>
         <th><span class="hint" title="Рост цены к средней цене покупки, без купонов и НКД">Доход</span></th><th>Доля</th></tr></thead><tbody>${rows}</tbody></table></div>
     </div>
-    ${state.comp ? "" : `<p class="muted" style="font-size:12px;margin:10px 0 0">Нажми на сектор или строку, чтобы увидеть бумаги группы.</p>`}`;
+`;
 }
 
 function plural(n, one, few, many) {
@@ -414,16 +411,18 @@ function upcomingList(events) {
   if (!events.length) return `<div class="empty">Выплат в ближайшие 90 дней нет<br>или график ещё не загружен</div>`;
   return `<table class="up"><tbody>${events.map(e => `<tr>
     <td class="l">${date(e.date)}</td>
-    <td class="l name">${secLink(e.isin, e.name)}<div class="isin">${KIND[e.kind] || e.kind}${state.portfolio ? "" : " · " + esc(PF_TITLES[e.portfolio] || e.portfolio)}${e.estimated ? " · сумма оценочная" : ""}</div></td>
+    <td class="l name">${secLink(e.isin, e.name)}<div class="isin">${KIND[e.kind] || e.kind}${state.portfolio ? "" : ", " + esc(PF_TITLES[e.portfolio] || e.portfolio)}${e.estimated ? ", сумма оценочная" : ""}</div></td>
     <td>${rub(e.amount, true)}</td></tr>`).join("")}</tbody></table>`;
 }
 
 function hbars(items) {
   if (!items.length) return `<div class="empty">Нет данных</div>`;
   const max = Math.max(...items.map(i => i.value));
-  return items.map(i => `<div class="hbar" title="${esc(i.label)}: ${rub(i.value)}">
+  // В подсказке — бумаги группы с их стоимостью, без повтора подписи строки.
+  const tipOf = i => i.members && i.members.length ? i.members.map(([n, v]) => `${n}: ${rub(v)}`).join("\n") : `${i.label}: ${rub(i.value)}`;
+  return items.map((i, n) => `<div class="hbar" data-tip="${esc(tipOf(i))}">
     <span class="lbl">${esc(i.label)}</span>
-    <span class="track"><span class="fill" style="display:block;width:${(i.value / max * 100).toFixed(1)}%"></span></span>
+    <span class="track"><span class="fill" style="display:block;width:${(i.value / max * 100).toFixed(1)}%;background:var(--h${n % 4})"></span></span>
     <span class="num">${pct(i.share)}<br><span class="muted">${rub(i.value)}</span></span></div>`).join("");
 }
 
@@ -449,7 +448,7 @@ function positions(r) {
     const price = p.price_pct != null ? nf2.format(p.price_pct) + " %" : rub(p.price, true);
     const avg = p.avg_price == null ? "—" : p.kind === "bond" && p.facevalue ? nf2.format(p.avg_price / p.facevalue * 100) + " %" : rub(p.avg_price, true);
     return `<tr>
-      <td class="name">${secLink(p.isin, p.name)}${pf}${flags}<div class="isin">${p.isin}${p.quote_date ? " · цена на " + date(p.quote_date) : ""}</div></td>
+      <td class="name">${secLink(p.isin, p.name)}${pf}${flags}<div class="isin">${p.isin}${p.quote_date ? ", цена на " + date(p.quote_date) : ""}</div></td>
       <td>${nf.format(p.quantity)}</td><td>${avg}</td><td>${price}</td>
       <td>${rub(p.value_full)}</td><td>${pct(p.share)}</td>
       <td class="${cls(p.unrealized)}">${signed(p.unrealized)}</td>
@@ -475,7 +474,7 @@ function incomeLegend() {
 
 function income(r) {
   const inc = r.income;
-  const rows = inc.months.slice().reverse().filter(m => Object.keys(m.received).length || Object.keys(m.expected).length);
+  const rows = inc.months.filter(m => Object.keys(m.received).length || Object.keys(m.expected).length);
   const sum = o => Object.entries(o).filter(([k]) => ["coupon", "dividend", "bonus"].includes(k)).reduce((a, [, v]) => a + v, 0);
   const cap = o => (o.amortization || 0) + (o.redemption || 0);
   return `<div class="grid tiles">
@@ -557,9 +556,9 @@ function drawIncome(r, lastN) {
       }).join("");
       const color = kind => `var(${(PAY_SERIES.find(x => x[0] === payKey(kind)) || PAY_SERIES[0])[2]})`;
       const shown = m.items.slice(0, 12);
-      const items = shown.length ? `<div class="items">${shown.map(x => `<div class="row"><span><i style="background:${color(x.kind)}"></i>${esc(x.name)}${x.expected ? " · ожид." : ""}</span><span>${rub(x.amount, true)}</span></div>`).join("")}
+      const items = shown.length ? `<div class="items">${shown.map(x => `<div class="row"><span><i style="background:${color(x.kind)}"></i>${esc(x.name)}${x.expected ? " (ожид.)" : ""}</span><span>${rub(x.amount, true)}</span></div>`).join("")}
         ${m.items.length > shown.length ? `<div class="row"><span>ещё ${m.items.length - shown.length}</span></div>` : ""}</div>` : "";
-      tip.innerHTML = `<b>${monthLabel(m.month)}: ${rub(total(m), true)}${m.estimated ? " · оценка" : ""}</b>${rows || '<div class="row"><span>выплат нет</span></div>'}${items}`;
+      tip.innerHTML = `<b>${monthLabel(m.month)}: ${rub(total(m), true)}${m.estimated ? " (оценка)" : ""}</b>${rows || '<div class="row"><span>выплат нет</span></div>'}${items}`;
       const box = host.getBoundingClientRect();
       tip.style.display = "block";
       const left = ev.clientX - box.left + 14;
@@ -603,9 +602,10 @@ function securityPage(c) {
   const annualCoupon = info.coupon_value && info.coupon_period ? info.coupon_value * 365 / info.coupon_period : null;
   const row = (k, v) => v == null || v === "" ? "" : `<dt>${k}</dt><dd>${v}</dd>`;
   const params = bond ? `<dl class="kv">
-      <h3>Общее</h3>
+      <h3>О выпуске</h3>
       ${row("Номинал", face ? rub(face, true) : null)}
       ${row("Погашение", sec.maturity ? date(sec.maturity) : null)}
+      ${c.positions[0] && c.positions[0].maturity !== sec.maturity ? row(`<span class="hint" title="Последняя выплата номинала по графику амортизаций биржи — к ней номинал выплачен полностью">Фактически</span>`, date(c.positions[0].maturity)) : ""}
       ${row("Оферта", info.offer_date ? date(info.offer_date) : null)}
       ${row("Купон", info.coupon_value ? `${rub(info.coupon_value, true)} раз в ${info.coupon_period} дн.` : null)}
       ${row("Следующий купон", info.next_coupon ? date(info.next_coupon) : null)}
@@ -614,11 +614,11 @@ function securityPage(c) {
       <h3>Доходность</h3>
       ${row(`<span class="hint" title="Ставка купона к номиналу">Купонная</span>`, info.coupon_pct != null ? pct(info.coupon_pct) : null)}
       ${row(`<span class="hint" title="Купоны за год к текущей чистой цене">Текущая</span>`, annualCoupon && q ? pct(annualCoupon / q.price * 100) : null)}
-      ${row(`<span class="hint" title="Доходность к погашению (или к оферте) по расчёту биржи">К погашению</span>`, info.ytm != null ? pct(info.ytm) : null)}
+      ${row(`<span class="hint" title="${info.floater ? "Оценка биржи: как если бы текущая ставка купона держалась до погашения" : "Доходность к погашению (или к оферте) по расчёту биржи"}">К погашению</span>`, info.ytm != null ? pct(info.ytm) : null)}
       ${row(`<span class="hint" title="Купоны за год к твоей средней цене покупки">К средней цене</span>`, annualCoupon && avg ? pct(annualCoupon / avg * 100) : null)}
     </dl>` : `<dl class="kv"><h3>Общее</h3>${row("Эмитент", esc(sec.issuer))}${row("Вид", sec.kind === "fund" ? "фонд" : "акция")}</dl>`;
   const mine = c.positions.map(p => `<div class="card" style="margin-top:12px">
-      <h2>${esc(c.portfolios[p.portfolio] || p.portfolio)}${p.quantity > 0 ? "" : " · позиция закрыта"}</h2>
+      <h2>${esc(c.portfolios[p.portfolio] || p.portfolio)}${p.quantity > 0 ? "" : ", позиция закрыта"}</h2>
       <div class="cols3">
         <dl class="kv"><h3>Общее</h3>
           ${row("Количество", nf.format(p.quantity) + " шт.")}${row("Текущая стоимость", p.quantity > 0 ? rub(p.value_full, true) : null)}
@@ -646,7 +646,7 @@ function securityPage(c) {
       </tbody></table></div>` : `<div class="empty">Операций нет</div>`;
   return `<a class="back" onclick="history.back()">← Назад</a>
   <div class="card"><div class="sechead">
-    <div><h1>${esc(sec.name)}</h1><div class="muted">${sec.isin}${sec.secid && sec.secid !== sec.isin ? " · " + esc(sec.secid) : ""}${sec.issuer ? " · " + esc(sec.issuer) : ""}</div>
+    <div><h1>${esc(sec.name)}</h1><div class="muted">${sec.isin}${sec.secid && sec.secid !== sec.isin ? ", " + esc(sec.secid) : ""}${sec.issuer ? "<br>" + esc(sec.issuer) : ""}</div>
       <div style="margin-top:8px"><span class="big">${q ? rub(q.price, true) : "—"}</span>
         ${q && bond && face ? `<span class="muted"> / ${nf2.format(q.price / face * 100)} %</span>` : ""}
         ${change != null ? ` <span class="${cls(change)}">${signed(change, true)} (${pct(change / q.prev * 100, true)})</span> <span class="muted">за день</span>` : ""}</div>
@@ -655,7 +655,7 @@ function securityPage(c) {
   </div></div>
   <div class="grid two" style="margin-top:12px">
     <div class="card"><h2>История цены${bond ? ", % от номинала" : ", ₽"}</h2>
-      <div class="ranges">${[[30, "1м"], [91, "3м"], [182, "6м"], [365, "1г"]].map(([d, t]) => `<button data-range="${d}" class="${state.range === d ? "on" : ""}">${t}</button>`).join("")}</div>
+      <div class="ranges">${RANGES.map(([d, t]) => `<button data-range="${d}" class="${state.range === d ? "on" : ""}">${t}</button>`).join("")}</div>
       <div class="chart" id="priceChart"></div></div>
     <div class="card">${params}</div>
   </div>
@@ -666,13 +666,36 @@ function securityPage(c) {
   </div>`;
 }
 
-function drawPrice(c) {
+const RANGES = [["1d", "День"], ["1w", "Неделя"], ["1m", "Месяц"], ["6m", "6 месяцев"], ["1y", "Год"]];
+const RANGE_DAYS = { "1m": 30, "6m": 182, "1y": 365 };
+const INTRADAY = { "1d": "day", "1w": "week" };
+
+// День и неделя — свечи с биржи, грузятся при первом выборе; месяц и дольше — из годовой истории карточки.
+async function drawPrice(c) {
   const host = document.getElementById("priceChart");
   if (!host) return;
-  if (!c.history) { host.innerHTML = `<div class="empty">История цены недоступна: ${esc(c.history_error || "")}</div>`; return; }
-  const last = c.history.length ? c.history[c.history.length - 1].date : "";
-  const since = new Date(new Date(last) - state.range * 864e5).toISOString().slice(0, 10);
-  const pts = c.history.filter(p => p.date >= since);
+  const range = state.range, intraday = INTRADAY[range];
+  let src = c;
+  if (intraday) {
+    c.intraday = c.intraday || {};
+    if (!c.intraday[range]) {
+      host.innerHTML = `<div class="empty">Загрузка…</div>`;
+      try { c.intraday[range] = await api(`/api/candles?isin=${encodeURIComponent(c.security.isin)}&range=${intraday}`); }
+      catch (e) { c.intraday[range] = { history: null, history_error: e.message }; }
+      if (state.range !== range || state.card !== c) return;
+    }
+    src = c.intraday[range];
+  }
+  if (!src.history) { host.innerHTML = `<div class="empty">История цены недоступна: ${esc(src.history_error || "")}</div>`; return; }
+  let pts = src.history;
+  if (!intraday) {
+    const last = pts.length ? pts[pts.length - 1].date : "";
+    const since = new Date(new Date(last) - RANGE_DAYS[range] * 864e5).toISOString().slice(0, 10);
+    pts = pts.filter(p => p.date >= since);
+  }
+  const hm = d => d.slice(11, 16);
+  const tickLabel = d => range === "1d" ? hm(d) : `${date(d).slice(0, 5)}.${d.slice(2, 4)}`;
+  const tipLabel = d => intraday ? `${date(d)}, ${hm(d)}` : date(d);
   if (pts.length < 2) { host.innerHTML = `<div class="empty">Мало сделок за период</div>`; return; }
   const sec = c.security, bond = sec.kind === "bond", face = sec.facevalue;
   const held = c.positions.filter(p => p.quantity > 0);
@@ -698,7 +721,7 @@ function drawPrice(c) {
   const ticks = 5;
   for (let k = 0; k < ticks; k++) {
     const i = Math.round(k / (ticks - 1) * (pts.length - 1));
-    svg += `<text x="${x(i)}" y="${H - 6}" text-anchor="${k === 0 ? "start" : k === ticks - 1 ? "end" : "middle"}">${date(pts[i].date).slice(0, 5)}.${pts[i].date.slice(2, 4)}</text>`;
+    svg += `<text x="${x(i)}" y="${H - 6}" text-anchor="${k === 0 ? "start" : k === ticks - 1 ? "end" : "middle"}">${tickLabel(pts[i].date)}</text>`;
   }
   svg += `<line class="cross" x1="0" x2="0" y1="${T}" y2="${H - B}" stroke="${css("--muted")}" visibility="hidden"/>
     <circle class="dot" r="4" fill="${css("--s1")}" stroke="${css("--surface")}" stroke-width="2" visibility="hidden"/>
@@ -712,7 +735,7 @@ function drawPrice(c) {
     const p = pts[i];
     cross.setAttribute("x1", x(i)); cross.setAttribute("x2", x(i)); cross.setAttribute("visibility", "visible");
     dot.setAttribute("cx", x(i)); dot.setAttribute("cy", y(p.price)); dot.setAttribute("visibility", "visible");
-    tip.innerHTML = `<b>${date(p.date)}</b><div class="row"><span>Цена</span><span>${fmt(p.price)}</span></div>` +
+    tip.innerHTML = `<b>${tipLabel(p.date)}</b><div class="row"><span>Цена</span><span>${fmt(p.price)}</span></div>` +
       (avg != null ? `<div class="row"><span>к средней</span><span class="${cls(p.price - avg)}">${pct((p.price / avg - 1) * 100, true)}</span></div>` : "");
     tip.style.display = "block";
     const left = x(i) / scale + 12;
@@ -726,13 +749,13 @@ function structure(r) {
   const s = r.structure;
   return `<div class="grid two">
     <div class="card"><h2 style="display:flex;align-items:center;gap:10px">Состав
-      <span class="seg">${[["issuer", "по эмитентам"], ["sector", "по отрасли"]].map(([k, t]) =>
+      <span class="seg">${[["issuer", "по эмитентам"], ["sector", "по отрасли"], ["risk", "по риску"]].map(([k, t]) =>
         `<button data-by="${k}" class="${state.structBy === k ? "on" : ""}">${t}</button>`).join("")}</span></h2>
       ${hbars(s[state.structBy])}</div>
     <div class="grid" style="align-content:start">
       <div class="card"><h2>По видам бумаг</h2>${hbars(s.kind)}</div>
       ${state.portfolio ? "" : `<div class="card"><h2>По брокерам</h2>${hbars(s.portfolio)}</div>`}
-      <div class="card"><h2>Облигации по году погашения</h2>${hbars(s.maturity.filter(x => x.label !== "не облигации"))}</div>
+      <div class="card"><h2>Возврат номинала по годам</h2>${hbars(s.maturity.filter(x => x.label !== "не облигации"))}</div>
     </div></div>`;
 }
 
@@ -806,7 +829,7 @@ document.addEventListener("click", async ev => {
     state.structBy = t.dataset.by;
     render();
   } else if (t.dataset.range) {
-    state.range = +t.dataset.range;
+    state.range = t.dataset.range;
     document.querySelectorAll("[data-range]").forEach(b => b.classList.toggle("on", b === t));
     drawPrice(state.card);
   } else if (t.dataset.sort) {
@@ -843,10 +866,15 @@ document.addEventListener("mouseover", e => {
   if (el.title) { el.dataset.tip = el.title; el.removeAttribute("title"); }
   hoverTip.textContent = el.dataset.tip;
   hoverTip.style.display = "block";
-  const box = el.getBoundingClientRect(), w = hoverTip.offsetWidth, h = hoverTip.offsetHeight;
-  hoverTip.style.left = Math.max(8, Math.min(box.left, innerWidth - w - 8)) + "px";
-  hoverTip.style.top = (box.bottom + 6 + h > innerHeight ? box.top - h - 6 : box.bottom + 6) + "px";
+  placeTip(e);
 });
+// Подсказка идёт за курсором: справа снизу, у края окна — по другую сторону.
+function placeTip(e) {
+  const w = hoverTip.offsetWidth, h = hoverTip.offsetHeight, gap = 14;
+  hoverTip.style.left = (e.clientX + gap + w > innerWidth - 8 ? e.clientX - gap - w : e.clientX + gap) + "px";
+  hoverTip.style.top = (e.clientY + gap + h > innerHeight - 8 ? e.clientY - gap - h : e.clientY + gap) + "px";
+}
+document.addEventListener("mousemove", e => { if (hoverTip.style.display === "block" && e.target.closest(TIP_SEL)) placeTip(e); });
 document.addEventListener("mouseout", e => {
   if (e.target.closest(TIP_SEL) && !e.target.closest(TIP_SEL).contains(e.relatedTarget)) hoverTip.style.display = "none";
 });

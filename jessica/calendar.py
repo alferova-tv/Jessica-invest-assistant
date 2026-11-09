@@ -45,32 +45,61 @@ def _bonds(holdings: dict) -> dict[str, dict]:
     return bonds
 
 
-def build(config: Config, *, pause: float = 0.4) -> dict:
+def build(config: Config, *, pause: float = 0.4, retry_failed: bool = False) -> dict:
     """Опрашивает источники и пишет schedule.json.
 
     pause — задержка между запросами: незачем долбить чужой сайт очередью.
+    retry_failed — повторно загрузить только выпуски с неполными данными.
     """
     holdings_path = config.state_file("holdings.json")
     if not holdings_path.exists():
         raise SystemExit("Сначала нужно разобрать выгрузки: jessica import")
     holdings = json.loads(holdings_path.read_text(encoding="utf-8"))
+    schedule_path = config.state_file("schedule.json")
+    previous = json.loads(schedule_path.read_text(encoding="utf-8")) if schedule_path.exists() else {}
 
     events: list[dict] = []
     incomplete: list[str] = []
+    incomplete_details: list[str] = []
     bonds = _bonds(holdings)
 
     details: dict[str, dict] = {}
+    failed = set(previous.get("incomplete", [])) | set(previous.get("incomplete_details", []))
     for index, bond in enumerate(bonds.values()):
+        if retry_failed and previous and bond["isin"] not in failed:
+            events.extend(event for event in previous.get("events", []) if event["isin"] == bond["isin"])
+            if bond["isin"] in previous.get("details", {}):
+                details[bond["isin"]] = previous["details"][bond["isin"]]
+            continue
         coupons = smartlab.fetch_coupons(bond["isin"], bond["code"])
         if not coupons:
             incomplete.append(bond["isin"])
-            log.warning("Нет купонов по %s (%s)", bond["name"], bond["isin"])
+            coupons = [
+                {**event, "stale": True}
+                for event in previous.get("events", [])
+                if event["isin"] == bond["isin"] and event["type"] == COUPON
+            ]
+            log.warning("Не удалось обновить купоны по %s (%s); сохранено прежних записей: %d",
+                        bond["name"], bond["isin"], len(coupons))
         events.extend(coupons)
 
         # Погашение и оферта в купонный график не входят, а пропустить их дороже
         # всего: оферту нельзя проспать, погашение возвращает весь номинал.
         card = smartlab.fetch_details(bond["isin"], bond["code"])
-        if card:
+        if not card:
+            incomplete_details.append(bond["isin"])
+            old_card = previous.get("details", {}).get(bond["isin"])
+            if old_card:
+                details[bond["isin"]] = {**old_card, "stale": True}
+            old_events = [
+                {**event, "stale": True}
+                for event in previous.get("events", [])
+                if event["isin"] == bond["isin"] and event["type"] in (OFFER, MATURITY)
+            ]
+            events.extend(old_events)
+            log.warning("Не удалось обновить параметры %s (%s); сохранено прежних событий: %d",
+                        bond["name"], bond["isin"], len(old_events))
+        else:
             details[bond["isin"]] = card
             nominal = _as_float(card.get("nominal"))
             for field, kind in (("maturity", MATURITY), ("offer_date", OFFER)):
@@ -94,12 +123,15 @@ def build(config: Config, *, pause: float = 0.4) -> dict:
         # сообщает только сам факт амортизации. Он сохранён в details, и по таким
         # выпускам уведомление помечается как неполное.
         "incomplete": incomplete,
+        "incomplete_details": incomplete_details,
         "details": details,
         "events": sorted(events, key=lambda event: (event["date"], event["isin"])),
     }
-    config.state_file("schedule.json").write_text(
+    temporary = schedule_path.with_suffix(".tmp")
+    temporary.write_text(
         json.dumps(schedule, ensure_ascii=False, indent=2), encoding="utf-8"
     )
+    temporary.replace(schedule_path)
     return schedule
 
 

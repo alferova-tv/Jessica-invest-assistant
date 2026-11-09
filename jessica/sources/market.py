@@ -9,10 +9,10 @@
 1. ISS Мосбиржи (`iss.moex.com`) — родной источник, реальное время. Из-под
    европейского VPN режется по IP выходного узла, и узел этот у VPN гуляет:
    в один час запрос проходит, в другой рвётся на TLS.
-2. Alor OpenAPI (`api.alor.ru`) — тот же IMOEX2 дневными свечами, без ключа.
+2. Alor OpenAPI (`api.alor.ru`) — тот же IMOEX дневными свечами, без ключа.
    Данные отстают минут на пятнадцать — для сводки в десять утра это не важно.
-3. smart-lab (главная страница) — последний рубеж. Там только IMOEX, не
-   IMOEX2, и без точного времени; на него падаем, лишь когда молчат оба первых.
+3. smart-lab (главная страница) — последний рубеж. Там IMOEX без надёжной
+   даты котировки; на него падаем, лишь когда молчат оба первых.
 
 Обе публичные функции возвращают None, если источник не ответил. Что писать
 вместо числа — решает events.py: сюда логика сообщений не спускается.
@@ -23,6 +23,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import logging
+import math
 import re
 import time
 
@@ -90,36 +91,61 @@ def _get(url: str, timeout: float) -> requests.Response | None:
 
 def _rows(payload: str, block: str) -> list[dict]:
     """ISS отдаёт таблицу как columns + data — разворачиваем её в словари."""
-    try:
-        table = json.loads(payload)[block]
-    except (ValueError, KeyError):
-        return []
+    table = json.loads(payload)[block]
+    if (not isinstance(table, dict) or not isinstance(table.get("columns"), list)
+            or not isinstance(table.get("data"), list)
+            or any(not isinstance(row, list) or len(row) != len(table["columns"]) for row in table["data"])):
+        raise ValueError(f"неверная структура таблицы {block}")
     return [dict(zip(table["columns"], row)) for row in table["data"]]
 
 
-def fetch_index(secid: str = "IMOEX2", *, timeout: float = 3, today: dt.date | None = None) -> dict | None:
+def fetch_index(secid: str = "IMOEX", *, timeout: float = 3, today: dt.date | None = None,
+                session_date: dt.date | None = None) -> dict | None:
     """Текущее значение индекса и его изменение к предыдущему закрытию.
 
     ISS, затем Alor, затем smart-lab — первый ответивший и выигрывает.
     Возвращаемый словарь одинаков у всех трёх; поле `secid` говорит, чей
-    именно индекс в нём лежит (у smart-lab это IMOEX, а не IMOEX2).
+    именно индекс в нём лежит. Запасной smart-lab возвращает IMOEX.
 
-    `live` — идут ли торги сегодня: в выходной и в праздник источник отдаёт
-    вчерашнее значение, и выдавать его за сегодняшнее нельзя.
+    `session_date` — торговая дата из календаря; в ДСВД она может отличаться
+    от календарного сегодня. `live` означает совпадение даты котировки
+    с ожидаемой сессией. Страница smart-lab без даты такого подтверждения не даёт.
     """
     today = today or dt.date.today()
-    return (
-        _index_iss(secid, timeout, today)
-        or _index_alor(secid, today)
-        or _index_smartlab(today)
-    )
+    session_date = session_date or today
+    for source, fetch in (
+        ("ISS", lambda: _index_iss(secid, timeout, today, session_date)),
+        ("Alor", lambda: _index_alor(secid, today, session_date)),
+        ("smart-lab", lambda: _index_smartlab(today)),
+    ):
+        try:
+            index = fetch()
+            if index is None:
+                continue
+            for field in ("value", "previous"):
+                value = index[field]
+                if value is None and field == "previous":
+                    continue
+                if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
+                    raise ValueError(f"неверное значение {field}")
+            for field in ("date", "previous_date", "session_date"):
+                if index.get(field) is not None:
+                    dt.date.fromisoformat(index[field])
+            if not isinstance(index["time"], str) or not isinstance(index["live"], bool):
+                raise ValueError("неверное время или признак текущих торгов")
+            if index["previous"] is not None and not index.get("previous_date"):
+                raise ValueError("нет даты предыдущего значения")
+            return index
+        except (KeyError, TypeError, ValueError, IndexError, OverflowError, OSError) as exc:
+            log.warning("%s: неверный ответ для индекса (%s); проверяем следующий источник", source, type(exc).__name__)
+    return None
 
 
-def _index_iss(secid: str, timeout: float, today: dt.date) -> dict | None:
-    """Родной источник. Закрытие берётся из истории, а не из поля LASTVALUE
-    в текущих торгах: у IMOEX2 они расходятся, потому что индекс считается
-    и в вечернюю сессию, а история отдаёт закрытие полного торгового дня —
-    то самое «вчера», с которым человек и сравнивает.
+def _index_iss(secid: str, timeout: float, today: dt.date, session_date: dt.date | None = None) -> dict | None:
+    """Родной источник. База сравнения — CLOSE предыдущей даты из истории.
+
+    У IMOEX официальное закрытие определяется по итогам основной сессии,
+    хотя текущие значения рассчитываются и в дополнительных сессиях.
     """
     current = _get(INDEX_MARKETDATA.format(secid=secid), timeout)
     history = _get(INDEX_HISTORY.format(secid=secid, since=(today - LOOKBACK).isoformat()), timeout)
@@ -144,19 +170,21 @@ def _index_iss(secid: str, timeout: float, today: dt.date) -> dict | None:
         value, date = closes[-1]["CLOSE"], closes[-1]["TRADEDATE"]
 
     earlier = next((row for row in reversed(closes) if row["TRADEDATE"] < date), None)
+    live = date == (session_date or today).isoformat()
     return {
         "secid": secid,
         "value": value,
         "previous": earlier["CLOSE"] if earlier else None,
         "previous_date": earlier["TRADEDATE"] if earlier else None,
-        "date": date,
+        "date": today.isoformat() if live else (date if date and date <= today.isoformat() else None),
+        "session_date": date,
         "time": market.get("UPDATETIME") or "",
-        "live": date == today.isoformat(),
+        "live": live,
     }
 
 
-def _index_alor(secid: str, today: dt.date) -> dict | None:
-    """Тот же IMOEX2 из Alor OpenAPI. Дневные свечи: последняя (сегодняшняя,
+def _index_alor(secid: str, today: dt.date, session_date: dt.date | None = None) -> dict | None:
+    """Тот же индекс из Alor OpenAPI. Дневные свечи: последняя (сегодняшняя,
     ещё формируется) — текущее значение, предыдущая с другой датой — «вчера».
     Данные отстают минут на пятнадцать; точного времени свеча не несёт.
     """
@@ -170,6 +198,9 @@ def _index_alor(secid: str, today: dt.date) -> dict | None:
     except (ValueError, KeyError, TypeError):
         return None
 
+    if not isinstance(candles, list) or any(not isinstance(c, dict) for c in candles):
+        raise ValueError("неверная структура свечей Alor")
+
     days = sorted(
         (dt.datetime.fromtimestamp(c["time"], dt.timezone.utc).date(), c["close"])
         for c in candles
@@ -180,22 +211,23 @@ def _index_alor(secid: str, today: dt.date) -> dict | None:
 
     date, value = days[-1]
     earlier = next((day for day in reversed(days) if day[0] < date), None)
+    live = date in {today, session_date or today}
     return {
         "secid": secid,
         "value": value,
         "previous": earlier[1] if earlier else None,
         "previous_date": earlier[0].isoformat() if earlier else None,
-        "date": date.isoformat(),
+        "date": today.isoformat() if live else (date.isoformat() if date <= today else None),
+        "session_date": date.isoformat(),
         "time": "",
-        "live": date == today,
+        "live": live,
     }
 
 
 def _index_smartlab(today: dt.date) -> dict | None:
-    """Последний рубеж: строка индекса в шапке главной smart-lab. Там IMOEX,
-    не IMOEX2, и без вечерней сессии. Абсолютного вчерашнего закрытия страница
-    не даёт — восстанавливаем его из процента (тот округлён до 0,1 %),
-    а дату закрытия принимаем за предыдущий будний день.
+    """Последний рубеж: строка IMOEX в шапке главной smart-lab.
+    Дата самой котировки и база процента не подтверждены.
+    Поэтому передаём только значение, без выдуманной даты и изменения.
     """
     response = _get(SMARTLAB_HOME, FALLBACK_TIMEOUT)
     if response is None:
@@ -206,20 +238,14 @@ def _index_smartlab(today: dt.date) -> dict | None:
         return None
 
     value = float(re.sub(r"\s", "", match.group(1)).replace(",", "."))
-    percent = float(match.group(2).replace(",", "."))
-    previous = value / (1 + percent / 100) if percent else value
-
-    prev_day = today - dt.timedelta(days=1)
-    while prev_day.weekday() >= 5:
-        prev_day -= dt.timedelta(days=1)
     return {
-        "secid": "IMOEX",  # не IMOEX2: на smart-lab его нет
+        "secid": "IMOEX",
         "value": value,
-        "previous": round(previous, 2),
-        "previous_date": prev_day.isoformat(),
-        "date": today.isoformat(),
+        "previous": None,
+        "previous_date": None,
+        "date": None,
         "time": "",
-        "live": today.weekday() < 5,
+        "live": False,
     }
 
 

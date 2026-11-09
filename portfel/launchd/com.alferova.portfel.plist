@@ -5,13 +5,15 @@
   <key>Label</key><string>com.alferova.portfel</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/alferova_tv/Projects/jessica/.venv/bin/python</string>
+    <string>__PROJECT_DIR__/.venv/bin/python</string>
     <string>-m</string><string>portfel</string><string>serve</string>
   </array>
-  <key>WorkingDirectory</key><string>/Users/alferova_tv/Projects/jessica/portfel</string>
+  <key>WorkingDirectory</key><string>__PROJECT_DIR__/portfel</string>
+  <key>EnvironmentVariables</key>
+  <dict><key>JESSICA_HOME</key><string>__DATA_DIR__</string></dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
-  <key>StandardOutPath</key><string>/Users/alferova_tv/Documents/Tracking/Invest/portfel/server.log</string>
-  <key>StandardErrorPath</key><string>/Users/alferova_tv/Documents/Tracking/Invest/portfel/server.log</string>
+  <key>StandardOutPath</key><string>__DATA_DIR__/portfel/server.log</string>
+  <key>StandardErrorPath</key><string>__DATA_DIR__/portfel/server.log</string>
 </dict>
 </plist>

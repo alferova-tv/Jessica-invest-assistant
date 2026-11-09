@@ -13,7 +13,7 @@ import json
 import logging
 import sqlite3
 
-from . import db, iss, paths
+from . import db, iss, paths, smartlab
 from .importers import alfa, tinvest
 
 log = logging.getLogger(__name__)
@@ -120,6 +120,24 @@ def resolve_sectors(conn: sqlite3.Connection, report: dict) -> None:
         return
     for isin, sector in found.items():
         db.upsert_security(conn, {"isin": isin, "sector": sector})
+
+
+def resolve_ratings(conn: sqlite3.Connection, report: dict) -> None:
+    """Рейтинги облигаций со smart-lab при каждой полной синхронизации: они меняются.
+
+    Госбумаги не спрашиваем, у них своя группа. Молчание smart-lab оставляет прошлые рейтинги.
+    """
+    held = set(held_isins(conn))
+    bonds = [row["isin"] for row in conn.execute("SELECT isin, issuer FROM securities WHERE kind = 'bond'")
+             if row["isin"] in held and "Правительство" not in (row["issuer"] or "")]
+    for isin in bonds:
+        try:
+            found = smartlab.rating(isin)
+        except smartlab.Unavailable as exc:
+            report["silent"].add(f"smart-lab, рейтинги ({exc})")
+            return
+        if found:
+            db.upsert_security(conn, {"isin": isin, "rating": found})
 
 
 def held_isins(conn: sqlite3.Connection) -> list[str]:
@@ -289,6 +307,8 @@ def run(conn: sqlite3.Connection | None = None, *, tinvest_api: bool = True) -> 
                 resolve_sectors(conn, report)
         with conn:
             refresh_quotes(conn, report)
+        with conn:
+            resolve_ratings(conn, report)
         with conn:
             fill_from_jessica(conn, report)
         with conn:

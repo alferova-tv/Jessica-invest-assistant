@@ -128,6 +128,16 @@ def build(conn: sqlite3.Connection, portfolio: str | None = None, today: dt.date
     ).fetchall()
     securities = {row["isin"]: dict(row) for row in conn.execute("SELECT * FROM securities")}
     quotes = {row["isin"]: dict(row) for row in conn.execute("SELECT * FROM quotes")}
+    # Выпуск с амортизацией (СФО прежде всего) гасится последним ненулевым платежом
+    # графика, а не в дату погашения по документам: к ней номинал уже выплачен.
+    paid_off = {row["isin"]: row["last"] for row in conn.execute(
+        "SELECT isin, MAX(date) AS last FROM payments WHERE kind IN (?, ?) AND per_unit > 0 GROUP BY isin",
+        (db.AMORTIZATION, db.REDEMPTION))}
+    # Сколько номинала вернётся в каждом году — для лесенки погашений.
+    principal: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+    for row in conn.execute("SELECT isin, date, per_unit FROM payments WHERE kind IN (?, ?) AND per_unit > 0 AND date >= ?",
+                            (db.AMORTIZATION, db.REDEMPTION, today.isoformat())):
+        principal[row["isin"]][row["date"][:4]] += row["per_unit"]
 
     positions: dict[tuple[str, str], dict] = {}
     loose = defaultdict(float)  # комиссии, налоги, бонусы без привязки к бумаге
@@ -173,7 +183,8 @@ def build(conn: sqlite3.Connection, portfolio: str | None = None, today: dt.date
         rows.append({
             "portfolio": pf, "isin": isin,
             "name": security.get("name") or isin, "kind": security.get("kind") or "other",
-            "issuer": security.get("issuer") or "", "maturity": security.get("maturity"), "sector": security.get("sector"),
+            "issuer": security.get("issuer") or "", "maturity": min(filter(None, [security.get("maturity"), paid_off.get(isin)]), default=None),
+            "maturity_legal": security.get("maturity"), "rating": security.get("rating"), "sector": security.get("sector"),
             "facevalue": security.get("facevalue"),
             "quantity": quantity, "cost": pos["cost"],
             "avg_price": pos["cost"] / quantity if quantity > EPS else None,
@@ -215,7 +226,7 @@ def build(conn: sqlite3.Connection, portfolio: str | None = None, today: dt.date
         "summary": summary,
         "positions": rows,
         "income": income,
-        "structure": _structure(open_rows, total_value),
+        "structure": _structure(open_rows, total_value, principal),
         "upcoming": _upcoming(conn, open_rows, today),
         "reconcile": _reconcile(open_rows, portfolio),
     }
@@ -354,23 +365,41 @@ SECTORS = {
 
 # Где разметка T не годится: ЭкоНива у T в «other», а это агросектор.
 SECTOR_FIXES = {"RU000A10EJZ8": "Агро"}
+# То же по эмитенту, чтобы новые выпуски попадали куда надо: T относит перевозчиков к «industrials».
+SECTOR_BY_ISSUER = [(re.compile(r"РЖД|ТрансКонтейнер", re.I), "Транспорт")]
 
 
-def _structure(open_rows: list[dict], total: float) -> dict:
-    def group(key) -> list[dict]:
+# От надёжного к рискованному; фонд денежного рынка и акции — в конце, рейтинга у них нет.
+RISK_ORDER = ["ОФЗ", "AAA", "AA", "A", "BBB", "BB и ниже", "Без рейтинга", "Фонды", "Акции"]
+
+
+def _structure(open_rows: list[dict], total: float, principal: dict[str, dict[str, float]]) -> dict:
+    def group(key, member=lambda r: r["name"]) -> list[dict]:
+        """key(row) — подпись группы или {подпись: доля}, если бумага делится между группами."""
         bucket = defaultdict(float)
+        members = defaultdict(lambda: defaultdict(float))  # для подсказки: какие бумаги в группе
         for row in open_rows:
-            bucket[key(row)] += row["value_full"]
-        items = sorted(({"label": k, "value": v, "share": v / total * 100 if total else 0}
+            parts = key(row)
+            for label, weight in (parts.items() if isinstance(parts, dict) else [(parts, 1.0)]):
+                bucket[label] += row["value_full"] * weight
+                members[label][member(row)] += row["value_full"] * weight
+        items = sorted(({"label": k, "value": v, "share": v / total * 100 if total else 0,
+                         "members": sorted(members[k].items(), key=lambda m: -m[1])}
                         for k, v in bucket.items()), key=lambda x: -x["value"])
         return items
 
     kinds = {"bond": "Облигации", "share": "Акции", "fund": "Фонды", "other": "Прочее"}
 
     def maturity(row):
+        """Стоимость бумаги делится по годам пропорционально номиналу, который в них вернётся:
+        у ЛСР 60 % номинала приходит амортизациями в 2028, 40 % — погашением в 2029."""
         if row["kind"] != "bond":
             return "не облигации"
-        return (row["maturity"] or "?")[:4]
+        years = principal.get(row["isin"])
+        if not years:
+            return (row["maturity"] or "?")[:4]
+        left = sum(years.values())
+        return {year: amount / left for year, amount in years.items()}
 
     def issuer(row):
         return _short_issuer(row["issuer"]) or row["name"]
@@ -378,13 +407,30 @@ def _structure(open_rows: list[dict], total: float) -> dict:
     def sector(row):
         if row["isin"] in SECTOR_FIXES:
             return SECTOR_FIXES[row["isin"]]
+        for pattern, label in SECTOR_BY_ISSUER:
+            if pattern.search(row["issuer"] or ""):
+                return label
         if re.search(r"\bСФО\b|специализированное финансовое общество", row["issuer"] or "", re.I):
             return "Секьюритизация"  # у T это «financial», но платит пул розничных кредитов, а не банк
         if row["kind"] == "fund":
             return "Фонды"  # у фондов денежного рынка сектора нет, T пишет «other»
         return SECTORS.get(row.get("sector"), "Не определён" if not row.get("sector") else row["sector"])
 
+    def risk(row):
+        """Облигации — по букве рейтинга без плюсов и минусов, прочее — по виду бумаги."""
+        if row["kind"] == "fund":
+            return "Фонды"
+        if row["kind"] != "bond":
+            return "Акции"
+        if "Правительство" in (row["issuer"] or ""):
+            return "ОФЗ"
+        letters = (row.get("rating") or "").rstrip("+-")
+        if not letters:
+            return "Без рейтинга"
+        return letters if letters in ("AAA", "AA", "A", "BBB") else "BB и ниже"
+
     return {
+        "risk": sorted(group(risk, lambda r: f'{r["name"]} ({r["rating"]})' if r.get("rating") else r["name"]), key=lambda x: RISK_ORDER.index(x["label"])),
         "kind": group(lambda r: kinds.get(r["kind"], "Прочее")),
         "portfolio": group(lambda r: PORTFOLIO_TITLES.get(r["portfolio"], r["portfolio"])),
         "issuer": group(issuer),
@@ -413,6 +459,8 @@ def _reconcile(open_rows: list[dict], portfolio: str | None) -> list[dict]:
     ours = defaultdict(float)
     names = {}
     for row in open_rows:
+        if row["portfolio"] == "tinkoff" and row.get("kind") == "fund":
+            continue  # Jessica берёт из API Т только облигации и акции
         ours[(row["portfolio"], row["isin"])] += row["quantity"]
         names[row["isin"]] = row["name"]
     theirs = defaultdict(float)

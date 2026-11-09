@@ -28,6 +28,12 @@ PORTFOLIO = "tinkoff"
 SOURCE = "tinvest"
 PAGE = 1000
 
+SECURITY_KINDS = {db.BUY, db.SELL, db.COUPON, db.DIVIDEND, db.AMORTIZATION, db.REDEMPTION}
+
+
+class Unavailable(RuntimeError):
+    """История операций неполна: прежние записи в базе нужно сохранить."""
+
 T = "OPERATION_TYPE_"
 KINDS = {
     T + "BUY": db.BUY, T + "BUY_CARD": db.BUY, T + "BUY_MARGIN": db.BUY, T + "DELIVERY_BUY": db.BUY,
@@ -113,6 +119,8 @@ def convert(item: dict, instrument: dict | None) -> tuple[dict | None, str | Non
     kind = KINDS.get(item.get("type", ""))
     if kind is None:
         return None, f"{item.get('date', '')[:10]} {item.get('type')}: {item.get('name') or item.get('description') or ''}"
+    if kind in SECURITY_KINDS and not (instrument or {}).get("isin"):
+        raise Unavailable(f"не найден ISIN для операции {item['id']}; история не обновлена")
     payment = _money(item.get("payment"))
     quantity = float(item.get("quantityDone") or item.get("quantity") or 0)
     accrued = abs(_money(item.get("accruedInt")))

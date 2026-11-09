@@ -35,15 +35,10 @@ RAW = HOME / "research" / "raw"
 # листающий сайт. На полном сборе это часы, поэтому пауза небольшая.
 PAUSE = 0.2
 TIMEOUT = 25
-# Сколько отказов подряд считаем блокировкой, а не разовым обрывом связи.
-FAILURES_BEFORE_STOP = 10
 
 
 class SourceUnavailable(RuntimeError):
     """ISS перестал отвечать: продолжать бессмысленно, нужно разобраться."""
-
-
-_failures = 0
 
 
 def _path(url: str) -> pathlib.Path:
@@ -55,7 +50,6 @@ def _path(url: str) -> pathlib.Path:
 
 def get(url: str, *, refresh: bool = False) -> dict:
     """Ответ ISS как словарь. Сначала диск, потом сеть."""
-    global _failures
     path = _path(url)
     if path.exists() and not refresh:
         with path.open() as fh:
@@ -63,16 +57,17 @@ def get(url: str, *, refresh: bool = False) -> dict:
 
     response = market._get(url, TIMEOUT)
     if response is None:
-        _failures += 1
-        if _failures >= FAILURES_BEFORE_STOP:
-            raise SourceUnavailable(
-                f"ISS не отвечает {_failures} раз подряд. Последний запрос: {url}. "
-                "Скачанное сохранено, запустите сбор заново — он продолжит с этого места."
-            )
-        return {}
-    _failures = 0
+        raise SourceUnavailable(
+            f"ISS не ответил после повторных запросов: {url}. "
+            "Скачанное сохранено, запустите сбор заново — он продолжит с этого места."
+        )
 
-    payload = response.json()
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise SourceUnavailable(f"ISS вернул не JSON: {url}") from exc
+    if not isinstance(payload, dict) or not payload:
+        raise SourceUnavailable(f"ISS вернул неверную структуру ответа: {url}")
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
     with tmp.open("w") as fh:
@@ -97,14 +92,21 @@ def paged(url: str, block: str, *, page: int = 100) -> list[dict]:
     while True:
         separator = "&" if "?" in url else "?"
         payload = get(f"{url}{separator}start={start}")
+        table = payload.get(block)
+        if (not isinstance(table, dict) or not isinstance(table.get("columns"), list)
+                or not isinstance(table.get("data"), list)
+                or any(not isinstance(row, list) or len(row) != len(table["columns"]) for row in table["data"])):
+            raise SourceUnavailable(f"ISS: некорректная таблица {block}, страница {start}: {url}")
         chunk = rows(payload, block)
+        cursor = rows(payload, f"{block}.cursor")
+        if cursor and start + len(chunk) < min(start + page, cursor[0]["TOTAL"]):
+            raise SourceUnavailable(f"ISS: неполная страница {start} таблицы {block}: {url}")
         out.extend(chunk)
         if not chunk:
             return out
         # Курсор с полем TOTAL есть не у всех эндпоинтов: у справочника
         # бумаг его нет вовсе, и раньше выгрузка обрывалась на первой сотне.
         # Поэтому курсор — только подсказка, а признак конца — пустая страница.
-        cursor = rows(payload, f"{block}.cursor")
         start += page
         if cursor and start >= cursor[0]["TOTAL"]:
             return out

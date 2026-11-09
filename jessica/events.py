@@ -177,18 +177,20 @@ def due(config: Config, today: dt.date | None = None) -> tuple[str, list[str]]:
             by_portfolio.setdefault(item["portfolio"], []).append(item)
 
         for portfolio, rows in sorted(by_portfolio.items()):
-            blocks.append(f"\n🏦 <b>{portfolio}</b>")
+            blocks.append(f"\n🏦 <b>{notify_escape(portfolio)}</b>")
             for row in sorted(rows, key=lambda r: r["name"]):
                 if row["total"] is None:
-                    blocks.append(f"• {row['name']}\n   ⏳ <i>ставка ещё не объявлена</i>")
+                    blocks.append(f"• {notify_escape(row['name'])}\n   ⏳ <i>ставка ещё не объявлена</i>")
                 else:
                     total += row["total"]
                     note = " 📉" if kind == COUPON and row["isin"] in amortized else ""
                     blocks.append(
-                        f"• {row['name']}{note}\n"
+                        f"• {notify_escape(row['name'])}{note}\n"
                         f"   <b>{money(row['total'])} ₽</b>"
                         f"  <i>· {row['quantity']:.0f} × {money(row['amount'])}</i>"
                     )
+                if row.get("stale"):
+                    blocks.append("   ⚠️ <i>Не удалось обновить график; данные из предыдущей загрузки.</i>")
         if total:
             blocks.append(f"\n{RULE}\n💵 <b>Итого: {money(total)} ₽</b>")
         if kind == COUPON and any(item["isin"] in amortized for item in items):
@@ -201,7 +203,8 @@ def due(config: Config, today: dt.date | None = None) -> tuple[str, list[str]]:
     return "\n".join(blocks).strip(), keys
 
 
-def send_due(config: Config, today: dt.date | None = None, *, dry_run: bool = False) -> str:
+def send_due(config: Config, today: dt.date | None = None, *, dry_run: bool = False) -> str | None:
+    """Текст после отправки, пустая строка без событий, None при отказе Telegram."""
     from . import notify
 
     text, keys = due(config, today)
@@ -209,8 +212,9 @@ def send_due(config: Config, today: dt.date | None = None, *, dry_run: bool = Fa
         return ""
     if dry_run:
         return text
-    if notify.send(config, text):
-        _remember(config, keys)
+    if not notify.send(config, text):
+        return None
+    _remember(config, keys)
     return text
 
 
@@ -235,7 +239,7 @@ def monthly_calendar(config: Config, today: dt.date | None = None) -> str:
     grand_unknown = 0
 
     for portfolio, rows in sorted(by_portfolio.items()):
-        lines.append(f"\n🏦 <b>{portfolio}</b>")
+        lines.append(f"\n🏦 <b>{notify_escape(portfolio)}</b>")
         total = 0.0
         unknown = 0
         for event in rows:
@@ -243,7 +247,7 @@ def monthly_calendar(config: Config, today: dt.date | None = None) -> str:
             when = f"<code>{short_date(date)}</code>"
             if event["total"] is None:
                 unknown += 1
-                lines.append(f"{when} · {event['name']}\n            ⏳ <i>ставка не объявлена</i>")
+                lines.append(f"{when} · {notify_escape(event['name'])}\n            ⏳ <i>ставка не объявлена</i>")
             else:
                 total += event["total"]
                 # Купон подписывать незачем — он и так основной случай, а вот
@@ -255,9 +259,11 @@ def monthly_calendar(config: Config, today: dt.date | None = None) -> str:
                     else f" <i>({TITLES[event['type']].lower()})</i>"
                 )
                 lines.append(
-                    f"{when} · {event['name']}{mark}\n"
+                    f"{when} · {notify_escape(event['name'])}{mark}\n"
                     f"            <b>{money(event['total'])} ₽</b>{label}"
                 )
+            if event.get("stale"):
+                lines.append("            ⚠️ <i>График из предыдущей загрузки.</i>")
         word = plural(len(rows), "выплата", "выплаты", "выплат")
         lines.append(f"   <b>{money(total)} ₽</b> — {len(rows)} {word}")
         if unknown:
@@ -352,7 +358,7 @@ def news_digest(config: Config, today: dt.date | None = None) -> tuple[str, list
         mine = [
             position
             for position in positions
-            if news.mentions(item["title"], markers[position["isin"]])
+            if news.mentions(item.get("company", item["title"]), markers[position["isin"]])
             and relevant_news(position["kind"], category)
         ]
         if not mine:
@@ -360,8 +366,8 @@ def news_digest(config: Config, today: dt.date | None = None) -> tuple[str, list
             if category not in MARKET_WIDE or not any(w in lowered for w in BOND_CONTEXT):
                 continue
 
-        key = f"news|{item['url'] or item['title'][:60]}"
-        if key in already:
+        key = f"report|{item['document_key']}" if category == "report" else f"news|{item['url'] or item['title'][:60]}"
+        if key in already or key in keys:
             continue
         keys.append(key)
 
@@ -370,12 +376,13 @@ def news_digest(config: Config, today: dt.date | None = None) -> tuple[str, list
         header = f"{emoji} <b>{title}</b>" if mine else f"{emoji} <b>{title}</b> <i>· по рынку</i>"
         lines = [header, RULE, notify_escape(item["title"])]
         if mine:
-            names = "\n".join(f"• {name}" for name in sorted({p["name"] for p in mine}))
+            names = "\n".join(f"• {notify_escape(name)}" for name in sorted({p["name"] for p in mine}))
             lines.append(f"\n<b>Ваши бумаги:</b>\n{names}")
         links = []
         if item["url"]:
-            links.append(f'<a href="{item["url"]}">📰 источник</a>')
-        if mine:
+            label = "📄 Открыть отчёт" if category == "report" else "📰 источник"
+            links.append(f'<a href="{notify_escape(item["url"])}">{label}</a>')
+        if mine and category != "report":
             # Официальное раскрытие закрыто капчей для программ, но не для человека,
             # поэтому даём прямую ссылку на поиск по компании.
             company = mine[0].get("issuer") or mine[0]["name"]
@@ -406,9 +413,8 @@ def send_news(config: Config, today: dt.date | None = None, *, dry_run: bool = F
 
 # --------------------------------------------------------------------- рынок
 
-# IMOEX2, а не IMOEX: он считается за весь торговый день, включая утреннюю
-# и вечернюю сессии, — к десяти утра по нему уже есть сегодняшнее движение.
-MARKET_INDEX = "IMOEX2"
+# С 26.09.2026 IMOEX рассчитывается во всех сессиях, включая выходные.
+MARKET_INDEX = "IMOEX"
 
 
 def _trend(change: float) -> str:
@@ -443,11 +449,15 @@ def _index_block(index: dict | None) -> list[str]:
     if index is None:
         return [f"📊 <b>{MARKET_INDEX}</b> — <i>Мосбиржа не ответила</i>"]
 
-    # Какой именно индекс ответил, тот и называем: запасной smart-lab
-    # отдаёт IMOEX, а не IMOEX2, и выдавать одно за другое нельзя.
+    # В шапке указываем код, который вернул источник.
     head = f"📊 <b>{index.get('secid') or MARKET_INDEX}</b> — {number(index['value'])}"
-    date = human_date(dt.date.fromisoformat(index["date"]))
-    if not index["live"]:
+    date = human_date(dt.date.fromisoformat(index["date"])) if index.get("date") else None
+    if date is None:
+        head += "  <i>· дата котировки неизвестна</i>"
+        if index.get("session_date"):
+            session = human_date(dt.date.fromisoformat(index["session_date"]))
+            head += f"  <i>· торговая дата {session}</i>"
+    elif not index["live"]:
         # Выходной или праздник: торгов сегодня не было, и выдавать последнее
         # значение за сегодняшнее нельзя.
         head += f"  <i>· закрытие {date}</i>"
@@ -478,18 +488,29 @@ def _usd_block(usd: dict | None, today: dt.date) -> list[str]:
     return lines
 
 
-def market_digest(config: Config, today: dt.date | None = None) -> str:
+def market_digest(config: Config, today: dt.date | None = None, *, scheduled: bool = False) -> str:
     """Утренняя сводка: индекс МосБиржи и официальный курс доллара.
 
     Источники независимы, и молчание одного не отменяет сводку: ISS Мосбиржи
     из-под VPN держится хуже, чем сайт ЦБ, а курс доллара нужен не меньше индекса.
-    Пустая строка возвращается, только если молчат оба, — тогда `run` не отметит
-    рассылку выполненной и повторит попытку через час.
+    Для автоматической рассылки дополнительно проверяется календарь торгов.
+    В неторговый день или при неподтверждённых торгах сводки нет. При отказе
+    календаря свежая датированная котировка служит подтверждением торгов.
     """
-    from .sources import market
+    from .sources import market, trading_calendar
 
     today = today or dt.date.today()
-    index = market.fetch_index(MARKET_INDEX, timeout=config.moex_timeout, today=today)
+    trading_day = trading_calendar.get_day(today, config.state_file("trading_calendar.json"), timeout=config.moex_timeout)
+    if scheduled and trading_day and trading_day["is_traded"] is False:
+        return ""
+    session = trading_day.get("session_date") if trading_day and trading_day["is_traded"] else None
+    session_date = dt.date.fromisoformat(session) if session else today
+    index = market.fetch_index(MARKET_INDEX, timeout=config.moex_timeout, today=today, session_date=session_date)
+    if scheduled and (trading_day is None or trading_day["is_traded"] is None):
+        # При отказе календаря свежая датированная котировка подтверждает торги.
+        # Старое закрытие и страница без даты таким подтверждением не служат.
+        if not index or not index["live"] or index.get("date") != today.isoformat():
+            return ""
     usd = market.fetch_cbr_usd(today=today)
     if index is None and usd is None:
         return ""
@@ -502,11 +523,11 @@ def market_digest(config: Config, today: dt.date | None = None) -> str:
     )
 
 
-def send_market(config: Config, today: dt.date | None = None, *, dry_run: bool = False) -> str:
+def send_market(config: Config, today: dt.date | None = None, *, dry_run: bool = False, scheduled: bool = False) -> str:
     """Отправляет сводку. Пустая строка означает «не ушло» — и повтор через час."""
     from . import notify
 
-    text = market_digest(config, today)
+    text = market_digest(config, today, scheduled=scheduled)
     if not text or dry_run:
         return text
     return text if notify.send(config, text) else ""

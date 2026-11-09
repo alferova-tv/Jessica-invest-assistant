@@ -1,0 +1,34 @@
+# Скопируй в ~/Documents/Tracking/Invest/config.yaml и заполни свои значения.
+# Удали из portfolios блок брокера, которым не пользуешься.
+telegram:
+  token: "REPLACE_WITH_TELEGRAM_BOT_TOKEN"
+  chat_id: 0
+
+tinvest:
+  token: "REPLACE_WITH_READ_ONLY_TINVEST_TOKEN"
+  # Если брокерских счетов несколько, укажи нужный:
+  # account: "REPLACE_WITH_ACCOUNT_ID"
+
+portfolios:
+  tinkoff:
+    title: "Т-Инвестиции"
+    source: tinvest
+  alpha:
+    title: "Альфа"
+    reports_dir: "alpha/reports"
+
+# За сколько календарных дней предупреждать; 0 — в день события.
+reminders:
+  coupon: [0]
+  amortization: [3, 0]
+  offer: [14, 7, 3, 0]
+  maturity: [7, 0]
+
+schedule:
+  morning_hour: 9             # Московское время
+  market_hour: 10             # Московское время
+  refresh_retry_hours: 3
+  monthly_calendar: true
+
+sources:
+  moex_timeout_sec: 3

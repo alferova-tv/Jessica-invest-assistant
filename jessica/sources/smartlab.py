@@ -3,8 +3,7 @@
 Основной источник дат и размеров купонов: страница /q/bonds/<ISIN>/coupons/
 отдаёт обычную HTML-таблицу, без JS и антибота.
 
-Чего здесь нет — амортизации, оферт и ставок флоатеров: на страницах корпоративных
-выпусков этих данных нет. Их добирает sources/cbonds.py через браузер.
+Оферты, погашения, номинал и признак амортизации берутся из карточки выпуска.
 """
 
 from __future__ import annotations
@@ -12,6 +11,7 @@ from __future__ import annotations
 import datetime as dt
 import logging
 import re
+import time
 
 import requests
 from bs4 import BeautifulSoup
@@ -39,16 +39,21 @@ def _to_amount(value: str) -> float | None:
         return None
 
 
-def _load(identifier: str, timeout: float) -> str | None:
-    try:
-        response = requests.get(
-            BASE.format(isin=identifier), headers={"User-Agent": UA}, timeout=timeout
-        )
-        response.raise_for_status()
-        return response.text
-    except requests.RequestException as exc:
-        log.debug("smart-lab не отдал %s: %s", identifier, exc)
-        return None
+def _load(identifier: str, timeout: float, *, template: str = BASE) -> str | None:
+    for attempt in range(3):
+        try:
+            response = requests.get(
+                template.format(isin=identifier), headers={"User-Agent": UA}, timeout=timeout
+            )
+            response.raise_for_status()
+            return response.text
+        except requests.RequestException as exc:
+            log.debug("smart-lab не отдал %s: %s", identifier, exc)
+            status = exc.response.status_code if exc.response is not None else None
+            if attempt == 2 or (status is not None and status != 429 and status < 500):
+                return None
+            time.sleep(2 ** attempt)
+    return None
 
 
 def fetch_coupons(isin: str, *alternates: str, timeout: float = 20) -> list[dict]:
@@ -60,7 +65,7 @@ def fetch_coupons(isin: str, *alternates: str, timeout: float = 20) -> list[dict
     Купон без суммы (флоатер, ставка ещё не объявлена) возвращается с amount=None
     и announced=False — по нему Jessica пришлёт уведомление, когда ставка появится.
     """
-    for identifier in (isin, *alternates):
+    for identifier in dict.fromkeys((isin, *alternates)):
         if not identifier:
             continue
         page = _load(identifier, timeout)
@@ -121,35 +126,35 @@ def fetch_details(isin: str, *alternates: str, timeout: float = 20) -> dict:
     Пропущенная оферта — самая дорогая ошибка держателя облигаций, поэтому
     эти поля важнее точности купона на копейку.
     """
-    for identifier in (isin, *alternates):
+    for identifier in dict.fromkeys((isin, *alternates)):
         if not identifier:
             continue
-        try:
-            response = requests.get(
-                DETAIL_URL.format(isin=identifier), headers={"User-Agent": UA}, timeout=timeout
-            )
-            response.raise_for_status()
-            break
-        except requests.RequestException:
+        page = _load(identifier, timeout, template=DETAIL_URL)
+        if not page:
             continue
-    else:
-        return {}
 
-    text = _plain(response.text)
-    details: dict = {"isin": isin, "source": "smartlab"}
-    for field, pattern in PATTERNS.items():
-        match = pattern.search(text)
-        if match:
-            details[field] = match.group(1).strip()
+        text = _plain(page)
+        details: dict = {"isin": isin, "source": "smartlab"}
+        for field, pattern in PATTERNS.items():
+            match = pattern.search(text)
+            if match:
+                details[field] = match.group(1).strip()
+        if not {"maturity", "offer_date", "nominal"}.intersection(details):
+            log.warning("Карточка %s не содержит распознанных параметров", identifier)
+            continue
 
-    for field in ("maturity", "offer_date"):
-        if field in details:
-            details[field] = dt.datetime.strptime(details[field], "%d-%m-%Y").date().isoformat()
+        try:
+            for field in ("maturity", "offer_date"):
+                if field in details:
+                    details[field] = dt.datetime.strptime(details[field], "%d-%m-%Y").date().isoformat()
+        except ValueError:
+            log.warning("В карточке %s некорректная дата", identifier)
+            continue
 
-    if details.get("offer_type", "").lower().startswith("оферты отсутств"):
-        details.pop("offer_type", None)
+        if details.get("offer_type", "").lower().startswith("оферты отсутств"):
+            details.pop("offer_type", None)
 
-    # Название вида «… с амортизацией долга» — единственный надёжный признак
-    # амортизируемого выпуска на этой странице.
-    details["amortized"] = "с амортизацией долга" in text.lower()
-    return details
+        details["amortized"] = "с амортизацией долга" in text.lower()
+        return details
+    log.warning("Не удалось получить параметры выпуска: %s", isin)
+    return {}

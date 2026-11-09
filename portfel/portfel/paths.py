@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-JESSICA_CODE = Path.home() / "Projects" / "jessica"
+JESSICA_CODE = Path(__file__).resolve().parents[2]
 
 
 def invest_home() -> Path:

@@ -10,10 +10,34 @@ state/
 logs/
 digests/
 *.xlsx
+*.xlsm
 *.zip
+tinvest-recordings/
 
 .DS_Store
 
 # Инструкции для Claude Code
 CLAUDE.md
 .claude/
+AGENTS.md
+docs/PUBLICATION.md
+docs/REPORT_SOURCES.md
+docs/superpowers/
+
+# Локальные скрипты отладки и сравнения источников
+/scripts/
+/tests/test_report_source_comparison.py
+
+# Локальные секреты, базы и выгрузки
+.env
+.env.*
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+*.pdf
+*.har
+*.log
+profile/

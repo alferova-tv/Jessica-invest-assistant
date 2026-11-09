@@ -61,10 +61,33 @@ class CollectTest(unittest.TestCase):
         self.assertEqual(positions["RU000A10D517"]["code"], "SU26253RMFS3")
         self.assertNotIn("uid", positions["RU000A10EA08"])
 
-    def test_reports_portfolio_is_untouched(self):
+    def test_first_report_missing_marks_portfolio_stale(self):
         data, _ = self.collect(BONDS)
-        self.assertNotIn("stale", data["portfolios"]["alpha"])
+        self.assertTrue(data["portfolios"]["alpha"]["stale"])
         self.assertNotIn("synced", data["portfolios"]["alpha"])
+
+    def test_missing_report_preserves_previous_positions(self):
+        previous = {**PREVIOUS_BLOCK, "title": "Альфа"}
+        self.write("holdings.json", {"portfolios": {"alpha": previous}})
+        for missing_folder in (False, True):
+            with self.subTest(missing_folder=missing_folder):
+                if missing_folder:
+                    (self.root / "alpha/reports").rmdir()
+                data, _ = self.collect(BONDS)
+                block = data["portfolios"]["alpha"]
+                self.assertEqual(block["positions"], previous["positions"])
+                self.assertTrue(block["stale"])
+                self.assertIn("не найдена", block["stale_reason"])
+
+    def test_valid_report_replaces_stale_positions(self):
+        self.write("holdings.json", {"portfolios": {"alpha": {**PREVIOUS_BLOCK, "stale": True}}})
+        position = holdings.Position("TEST", 2, "alpha", "Выпуск", "bond")
+        with mock.patch.object(holdings, "parse_portfolio", return_value=([position], [], self.root / "report.xlsx", "alpha")):
+            data, _ = self.collect(BONDS)
+        block = data["portfolios"]["alpha"]
+        self.assertEqual(block["positions"], [position.as_dict()])
+        self.assertFalse(block.get("stale", False))
+        self.assertNotIn("stale_reason", block)
 
     def test_cache_is_written_after_success(self):
         self.collect(BONDS)

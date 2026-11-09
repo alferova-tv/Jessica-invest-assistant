@@ -112,12 +112,13 @@ def quotes(securities: list[dict]) -> dict[str, dict]:
             try:
                 payload = _get(
                     f"engines/stock/markets/{market}/boards/{board}/securities",
-                    {"securities": ",".join(by_secid), "iss.only": "securities,marketdata"},
+                    {"securities": ",".join(by_secid), "iss.only": "securities,marketdata,marketdata_yields"},
                 )
             except Unavailable as exc:
                 log.warning("ISS: котировки не получены (%s)", exc)
                 continue
             static = {row["SECID"]: row for row in _table(payload, "securities")}
+            yields = {row["SECID"]: row for row in _table(payload, "marketdata_yields")}
             for row in _table(payload, "marketdata"):
                 secid = row["SECID"]
                 info = static.get(secid, {})
@@ -140,15 +141,20 @@ def quotes(securities: list[dict]) -> dict[str, dict]:
                     "currency": info.get("FACEUNIT") or info.get("CURRENCYID") or "",
                     "maturity": info.get("MATDATE") or None,
                     "updated": (row.get("SYSTIME") or row.get("UPDATETIME") or "")[:10] or None,
-                    "info": _bond_info(info, row) if market == "bonds" else {},
+                    "info": _bond_info(info, row, yields.get(secid, {})) if market == "bonds" else {},
                 }
     return result
 
 
-def _bond_info(static: dict, market: dict) -> dict:
-    """Купон и доходности для карточки облигации, как их считает биржа."""
+def _bond_info(static: dict, market: dict, yields: dict) -> dict:
+    """Купон и доходности для карточки облигации, как их считает биржа.
+
+    У флоатеров YIELD и DURATION в marketdata нулевые — тогда берём эффективную
+    доходность из marketdata_yields: биржа считает её, как будто текущая ставка
+    (RUONIA, ключевая) продержится до погашения.
+    """
     def clean(value):
-        return None if value in (None, "", "0000-00-00") else value
+        return None if value in (None, "", 0, "0000-00-00") else value
 
     return {
         "coupon_pct": clean(static.get("COUPONPERCENT")),
@@ -156,8 +162,10 @@ def _bond_info(static: dict, market: dict) -> dict:
         "coupon_period": clean(static.get("COUPONPERIOD")),
         "next_coupon": clean(static.get("NEXTCOUPON")),
         "offer_date": clean(static.get("OFFERDATE")) or clean(static.get("BUYBACKDATE")),
-        "ytm": clean(market.get("YIELD")) or clean(static.get("YIELDATPREVWAPRICE")),
-        "duration_days": clean(market.get("DURATION")),
+        "ytm": (clean(market.get("YIELD")) or clean(static.get("YIELDATPREVWAPRICE"))
+                or clean(yields.get("EFFECTIVEYIELD"))),
+        "duration_days": clean(market.get("DURATION")) or clean(yields.get("DURATION")),
+        "floater": bool(static.get("COUPON_DETAILS")) and not clean(static.get("COUPONPERCENT")),
         "list_level": clean(static.get("LISTLEVEL")),
     }
 
@@ -181,6 +189,21 @@ def history(security: dict, since: str) -> list[dict]:
         price = row.get("LEGALCLOSEPRICE") or row.get("CLOSE") or row.get("WAPRICE")
         if price:
             points.append({"date": row["TRADEDATE"], "price": float(price)})
+    return points
+
+
+def candles(security: dict, since: str, interval: int) -> list[dict]:
+    """Свечи с `since` (ГГГГ-ММ-ДД): interval 10 — десятиминутки, 60 — часовые. Цена — закрытие свечи."""
+    path = (f"engines/stock/markets/{security['market']}/boards/{security['board']}"
+            f"/securities/{security['secid']}/candles")
+    points: list[dict] = []
+    start = 0
+    while True:
+        page = _table(_get(path, {"from": since, "interval": interval, "start": start}), "candles")
+        points += [{"date": row["begin"], "price": float(row["close"])} for row in page if row.get("close")]
+        if len(page) < 500:
+            break
+        start += len(page)
     return points
 
 

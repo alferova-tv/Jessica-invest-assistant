@@ -54,8 +54,6 @@ CATEGORIES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("restructuring", (r"реструктуризац\w* (?:долг|облигац|выпуск|займ)", r"пересмотр условий выпуска")),
     ("rating", (r"рейтинг", r"прогноз изменен", r"отозвал\w* рейтинг")),
     ("offer", (r"оферт", r"выкуп облигаци", r"досрочно погасит", r"досрочное погашение")),
-    ("report", (r"\bмсфо\b", r"\bрсбу\b", r"отч[её]тность", r"финансовые результаты",
-                r"результаты за", r"чистая прибыль", r"выручка за", r"отчитал")),
     ("dividend", (r"дивиденд", r"отсечк", r"закрытие реестра")),
     ("issue", (r"допэмисс", r"дополнительн\w* выпуск", r"\bspo\b", r"\bipo\b", r"размещени\w* акци")),
     ("buyback", (r"buyback", r"обратн\w* выкуп акци")),
@@ -146,8 +144,8 @@ def company_markers(name: str, issuer: str = "") -> dict[str, set[str]]:
 
     Возвращает две группы. `stems` — основы длинных слов: русский язык склоняет
     названия («Татнефть» → «Татнефти»), поэтому сравнивается начало слова, а не
-    слово целиком. `abbr` — аббревиатуры вроде РЖД или ЛСР: они короткие, и искать
-    их можно только целым словом, иначе совпадёт что угодно.
+    слово целиком. `abbr` — аббревиатуры и короткие названия: они ищутся
+    целыми словами. Для Озона отдельно перечислены падежные формы и Ozon.
     """
     source = f"{name} {issuer}".strip()
     if GOVERNMENT.search(source):
@@ -161,18 +159,24 @@ def company_markers(name: str, issuer: str = "") -> dict[str, set[str]]:
     for word in re.split(r"[\s,\-/()]+", cleaned):
         word = word.strip(".").lower()
         if len(word) >= 4 and word not in STOPWORDS and "." not in word:
-            # Отрезаем окончание: двух букв хватает, чтобы покрыть падежи,
-            # но у коротких слов основу дальше резать нельзя.
-            stems.add(word[:-2] if len(word) > 5 else word[:-1])
+            if word in {"озон", "ozon"}:
+                abbr.add("озон")
+            elif len(word) <= 5:
+                abbr.add(word)
+            else:
+                stems.add(word[:-2])
     return {"stems": stems, "abbr": abbr}
 
 
 def mentions(title: str, markers: dict[str, set[str]]) -> bool:
     """Упомянута ли компания в заголовке."""
-    lowered = title.lower()
-    if any(stem in lowered for stem in markers["stems"]):
+    if any(re.search(rf"\b{re.escape(stem)}", title, re.I) for stem in markers["stems"]):
         return True
-    return any(re.search(rf"\b{re.escape(a)}\b", title, re.I) for a in markers["abbr"])
+    for word in markers["abbr"]:
+        pattern = r"\b(?:озон(?:а|у|ом|е)?|ozon)\b" if word.lower() in {"озон", "ozon"} else rf"\b{re.escape(word)}\b"
+        if re.search(pattern, title, re.I):
+            return True
+    return False
 
 
 def silent(name: str, issuer: str = "") -> bool:
@@ -191,6 +195,10 @@ def silent(name: str, issuer: str = "") -> bool:
 
 def classify(title: str, source: str = "") -> str | None:
     """Категория события. Без указания ленты работают только общие маркеры."""
+    from .reports import SOURCE as REPORTS_SOURCE
+
+    if source == REPORTS_SOURCE:
+        return "report"
     for category, markers in COMPILED_BY_SOURCE.get(source, COMPILED):
         if any(marker.search(title) for marker in markers):
             return category
@@ -242,19 +250,29 @@ def _parse(raw: str, source: str) -> list[dict]:
                 "url": link.group(1).strip() if link else "",
                 "date": when or dt.date.today().isoformat(),
                 "source": source,
+                "published_at": parsedate_to_datetime(published.group(1).strip()).isoformat()
+                if published and when else "",
+                "author": (author.group(1).strip() if (author := re.search(r"<dc:creator>(.*?)</dc:creator>", chunk, re.S)) else ""),
             }
         )
     return items
 
 
 def fetch(*, timeout: float = 20) -> list[dict]:
-    """Последние новости всех лент. Недоступная лента просто не даёт записей."""
+    """Новости лент и ссылки на отчёты из отдельной таблицы smart-lab."""
+    from . import reports
+
     items: list[dict] = []
     for name, url in FEEDS:
         items.extend(_parse(_download(name, url, timeout), name))
+    items.extend(reports.fetch(timeout=timeout))
     return items
 
 
 def feed_status(*, timeout: float = 20) -> list[tuple[str, int]]:
     """Сколько записей отдаёт каждая лента — для `jessica doctor`."""
-    return [(name, len(_parse(_download(name, url, timeout), name))) for name, url in FEEDS]
+    from . import reports
+
+    return [(name, len(_parse(_download(name, url, timeout), name))) for name, url in FEEDS] + [
+        (reports.SOURCE, len(reports.fetch(timeout=timeout)))
+    ]
