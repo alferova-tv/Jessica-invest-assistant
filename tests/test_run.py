@@ -96,6 +96,38 @@ class MarketScheduleTest(unittest.TestCase):
         instant = dt.datetime(2026, 11, 5, 12, tzinfo=MOSCOW)
         self.run_at(instant).assert_called_once_with(self.config, instant.date(), scheduled=True)
 
+    def test_market_is_sent_before_refresh_and_marker_survives_refresh_error(self):
+        instant = dt.datetime(2026, 11, 5, 10, tzinfo=MOSCOW)
+        marker = self.config.state_file("last_run.json")
+        with patch("jessica.cli.dt.datetime", wraps=dt.datetime) as timer, \
+                patch("jessica.cli.events.send_market", return_value="сводка") as send, \
+                patch("jessica.cli.holdings.collect") as collect:
+            timer.now.return_value = instant
+
+            def failed_refresh(config):
+                send.assert_called_once_with(config, instant.date(), scheduled=True)
+                self.assertEqual(json.loads(marker.read_text())["market"], "2026-11-05")
+                raise RuntimeError("источник портфеля недоступен")
+
+            collect.side_effect = failed_refresh
+            with self.assertRaises(RuntimeError):
+                cmd_run(self.config, None)
+
+        self.run_at(instant).assert_not_called()
+
+    def test_failed_market_send_is_retried(self):
+        instant = dt.datetime(2026, 11, 5, 10, tzinfo=MOSCOW)
+        with patch("jessica.cli.events.send_market", return_value=""), \
+                patch("jessica.cli.dt.datetime", wraps=dt.datetime) as timer, \
+                patch("jessica.cli.refresh_due", return_value=False), \
+                patch("jessica.cli.events.send_news"), patch("jessica.cli.events.send_due"):
+            timer.now.return_value = instant
+            cmd_run(self.config, None)
+        state = json.loads(self.config.state_file("last_run.json").read_text())
+        self.assertNotIn("market", state)
+        self.run_at(instant + dt.timedelta(hours=1)).assert_called_once_with(
+            self.config, instant.date(), scheduled=True)
+
     def test_weekend_is_delegated_to_exchange_calendar_in_moscow(self):
         saturday = dt.datetime(2026, 11, 7, 10, tzinfo=MOSCOW)
         self.run_at(saturday).assert_called_once_with(self.config, saturday.date(), scheduled=True)

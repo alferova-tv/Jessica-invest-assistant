@@ -257,6 +257,15 @@ def cmd_run(config: Config, args) -> int:
     today = now.date().isoformat()
     calendar_built = False
 
+    # launchd запускает проход в начале часа. Сводка идёт первой, чтобы
+    # в 10:00 не ждать сбор портфелей, календаря и новостей.
+    if now.hour >= config.market_hour and state.get("market") != today:
+        if events.send_market(config, now.date(), scheduled=True):
+            state["market"] = today
+            # Сохраняем сразу: ошибка в следующих задачах не должна приводить
+            # к повторной отправке уже доставленной сводки.
+            marker.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+
     # Состав — раз в сутки. Если API брокера не ответил, прошлый состав остаётся,
     # а сбор повторяется через refresh_retry_hours: VPN то пускает к брокеру, то нет.
     if refresh_due(state, now, config.refresh_retry_hours):
@@ -291,14 +300,6 @@ def cmd_run(config: Config, args) -> int:
         text = events.monthly_calendar(config, now.date())
         if not text or notify.send(config, text):
             state["monthly"] = today
-
-    # Сводка по рынку — отдельным часом и отдельной отметкой: она зависит
-    # от живых торгов, а события дня — только от календаря.
-    if now.hour >= config.market_hour and state.get("market") != today:
-        # Источники промолчали либо день неторговый/не подтверждён:
-        # следующий проход проверит календарь и доступность ещё раз.
-        if events.send_market(config, now.date(), scheduled=True):
-            state["market"] = today
 
     marker.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
     return 0
